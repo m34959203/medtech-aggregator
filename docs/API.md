@@ -61,6 +61,36 @@ curl -F clinic_id=1 -F file=@pricelist.xlsx localhost:8000/api/ingest/upload
 ### `GET /api/cities` → `string[]`
 ### `GET /api/services?q=&category=&limit=` → `ServiceOut[]`
 
+## Чат-помощник (🤖)
+
+### `POST /api/chat` — диалоговый поиск по витрине
+Бот = надстройка над агрегатором: сам ищет по нормализованному справочнику
+(retrieval-injection) и отвечает строго по найденным данным, не выдумывая цены.
+Провайдер LLM — AlemLLM (или Groq), переключается через `LLM_PROVIDER`. Без ключа
+провайдера деградирует в детерминированный поиск-сводку.
+
+Тело (`messages` — история диалога, роли `user` / `assistant`):
+```json
+{"messages":[{"role":"user","content":"Где дешевле общий анализ крови в Алматы?"}]}
+```
+→ `ChatResponse`:
+```json
+{
+  "reply": "Самая выгодная — INVITRO Алматы, 520 ₸. Цены справочные, уточняйте в клинике.",
+  "offers": [
+    {"service":"Общий анализ крови","clinic_name":"INVITRO Алматы","city":"Алматы",
+     "district":"Алмалинский","address":"...","phone":"+7 727 ...","price":520,
+     "currency":"KZT","is_cheapest":true}
+  ],
+  "grounded": true,   // ответ построен на реальных данных витрины
+  "llm": true         // отвечал LLM (false = детерминированный фолбэк)
+}
+```
+```bash
+curl -X POST localhost:8000/api/chat -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"сколько стоит ОАК?"}]}'
+```
+
 ## Клиники
 - `GET /api/clinics?city=` → `ClinicOut[]`
 - `POST /api/clinics` (тело `ClinicIn`) → `ClinicOut`

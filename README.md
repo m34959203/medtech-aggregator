@@ -24,11 +24,13 @@ medtech-platform/
 │   │   │   ├── normalizer.py      # ★ нормализация к справочнику (fuzzy + LLM)
 │   │   │   └── service.py         # оркестрация + дедупликация каналов
 │   │   ├── routers/         # Кейс 2 — агрегатор + приём + клиники
+│   │   │   └── chat.py      # 🤖 чат-помощник пациента (retrieval-injection, AlemLLM/Groq)
 │   │   ├── scheduler.py     # планировщик автосбора (cron / Celery-ready)
 │   │   └── seed.py          # демо-данные через реальный конвейер
 │   ├── sample_data/         # демо-прайсы: xlsx, csv, pdf, html, json
-│   └── tests/               # pytest (парсер, нормализация, дедуп)
+│   └── tests/               # pytest (парсер, нормализация, дедуп, чат)
 ├── frontend/                # Next.js (App Router, TS, Tailwind) — витрина пациента
+│   └── components/          # ClinicMap (Яндекс.Карты) · ChatWidget (🤖 помощник)
 └── docs/                    # архитектура, API, питч, этика автосбора
 ```
 
@@ -40,6 +42,18 @@ medtech-platform/
 | **② Pull** | платформа сама собирает цены: веб-парсер + API-коннекторы по расписанию | автосбор |
 
 Оба канала сходятся в **★ нормализацию** — приведение разнобоя названий («ОАК», «Общий анализ крови (5 параметров)», «Кровь — общий анализ») к одной записи справочника + **дедупликацию** (при конфликте приоритет у официальной загрузки клиники). Это «вау»-фишка проекта.
+
+---
+
+## 🤖 Чат-помощник пациента
+
+Диалоговый поиск по витрине: пациент спрашивает «где дешевле общий анализ крови в Алматы?» — бот находит и сравнивает клиники. Ключевой принцип — **бот не выдумывает цены**: это надстройка над агрегатором, а не «всезнающий» LLM.
+
+- **Retrieval-injection.** Помощник сначала **сам ищет** по тому же нормализованному справочнику, что и витрина (фаззи-подбор услуги + детект города), вкладывает найденные предложения в контекст модели, и та отвечает **строго по этим данным**, выделяя самую выгодную клинику.
+- **LLM — AlemLLM** (казахстанская модель, OpenAI-совместимый endpoint). Провайдер переключается через `LLM_PROVIDER` (`alem` / `groq`) — один и тот же код. Tool-calling намеренно не используется (AlemLLM его не поддерживает; retrieval-injection надёжнее и провайдер-агностичен).
+- **Демо живёт всегда.** Без ключа провайдера (или при сбое сети) бот деградирует в детерминированный поиск-сводку по базе.
+
+Бэкенд: `backend/app/routers/chat.py` (`POST /api/chat`). Фронт: `frontend/components/ChatWidget.tsx` (плавающий виджет на всех страницах).
 
 ---
 
@@ -57,12 +71,16 @@ uvicorn app.main:app --reload             # API на http://localhost:8000
 Swagger-документация: `http://localhost:8000/docs`.
 
 > **LLM-нормализация (опционально).** Добавьте `GROQ_API_KEY` в `.env` — неоднозначные названия будет разводить LLM. Без ключа всё работает на fuzzy-match (rapidfuzz), без сети.
+>
+> **Чат-помощник (опционально).** Для ответов LLM задайте `LLM_PROVIDER=alem` + `ALEM_API_KEY` (или `GROQ_API_KEY`) в `backend/.env`. Без ключа бот отвечает детерминированным поиском по базе.
+>
+> **Карта.** Фронту нужен `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` (бесплатный ключ Яндекс.Карт, ограничен по домену). Без ключа вместо карты — аккуратный плейсхолдер.
 
 ### Frontend
 ```bash
 cd frontend
 npm install
-cp .env.local.example .env.local          # NEXT_PUBLIC_API_URL=http://localhost:8000
+cp .env.example .env.local                # NEXT_PUBLIC_API_URL + NEXT_PUBLIC_YANDEX_MAPS_API_KEY
 npm run dev                                # витрина на http://localhost:3000
 ```
 
@@ -80,6 +98,7 @@ docker compose up -d db
 2. Система сама распарсила и **нормализовала** услуги к справочнику.
 3. Открываем витрину → услуга «Общий анализ крови» появилась в сравнении.
 4. Пациент видит, где **дешевле** и **ближе** (карта), и из какого источника цена.
+5. Спрашиваем 🤖 **чат-помощника** «где дешевле общий анализ крови?» → бот находит и называет самую выгодную клинику строго по базе.
 
 Проверка одной командой (после `seed`):
 ```bash
@@ -101,15 +120,16 @@ curl -G localhost:8000/api/compare/1 --data-urlencode sort=price_asc
 | GET | `/api/compare/{id}` | сравнение цен по услуге между клиниками |
 | GET | `/api/categories`, `/api/cities` | фильтры |
 | GET | `/api/clinics` | список клиник |
+| POST | `/api/chat` | 🤖 чат-помощник пациента (диалоговый поиск по витрине) |
 
 Полный контракт — в `docs/API.md` и Swagger `/docs`.
 
 ## Стек
-Python · FastAPI · SQLAlchemy · pandas · pdfplumber · rapidfuzz · Groq (LLM) · BeautifulSoup/httpx · PostgreSQL/SQLite · Next.js · Tailwind · Leaflet (карта).
+Python · FastAPI · SQLAlchemy · pandas · pdfplumber · rapidfuzz · BeautifulSoup/httpx · AlemLLM/Groq (чат-помощник + LLM-нормализация) · PostgreSQL/SQLite · Next.js · Tailwind · Яндекс.Карты (карта клиник).
 
 ## Тесты
 ```bash
-cd backend && python -m pytest -q       # 9 тестов: парсер, нормализация, дедупликация
+cd backend && python -m pytest -q       # 23 теста: парсер, нормализация, дедупликация, чат
 ```
 
 См. также: [docs/architecture.md](docs/architecture.md) · [docs/pitch.md](docs/pitch.md) · [docs/legal.md](docs/legal.md)
