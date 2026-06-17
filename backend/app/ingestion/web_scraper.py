@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse
 
 import httpx
@@ -149,6 +150,43 @@ def _dedup(items: list[RawItem]) -> list[RawItem]:
             seen.add(key)
             out.append(it)
     return out
+
+
+def scrape_lab_platform(base_url: str, city: str, timeout: float = 45.0) -> list[RawItem]:
+    """Лаборатории INVIVO и SAPA на общей Django-платформе: каталог анализов
+    отдаётся не в статике, а сессионным AJAX. Берём cookies со страницы, затем
+    `a-and-c-search-with-panels?service_type=anl` (любой ≠ pac → отдельные
+    анализы, pac = чек-ап пакеты). Markup двух видов — INVIVO (.results-analyzes-
+    item) и SAPA (строки .row с .cell__value)."""
+    base = base_url.rstrip("/")
+    referer = f"{base}/ru/{city}/analyzes/"
+    with httpx.Client(headers={"User-Agent": UA}, timeout=timeout,
+                      follow_redirects=True, verify=False) as c:
+        c.get(referer)  # набрать csrftoken/sessionid
+        ajax = (f"{base}/ru/ajax/{city}/a-and-c-search-with-panels/"
+                "?service_type=anl&categories=%5B%5D&showed=%5B%5D&all=true&_=1")
+        resp = c.get(ajax, headers={"X-Requested-With": "XMLHttpRequest", "Referer": referer})
+        resp.raise_for_status()
+        data = resp.json().get("data", "")
+    soup = BeautifulSoup(data, "html.parser")
+    out: list[RawItem] = []
+    cards = soup.select(".results-analyzes-item")
+    if cards:  # INVIVO: имя до «Код:», цена — последний ₸ в карточке
+        for it in cards:
+            text = it.get_text(" ", strip=True)
+            name = re.split(r"Код", text)[0].strip()
+            nums = re.findall(r"([\d\s][\d\s]*)\s*₸", text)
+            price = parse_price(nums[-1]) if nums else None
+            if name and price and len(name) > 2:
+                out.append(RawItem(raw_name=name, price=price))
+    else:  # SAPA: строка-анализ, ячейки .cell__value (имя + цена с ₸)
+        for row in soup.select(".row.justify-content-between, .open-research"):
+            vals = [cell.get_text(" ", strip=True) for cell in row.select(".cell__value")]
+            name = max((v for v in vals if "₸" not in v), key=len, default="")
+            price = next((parse_price(v) for v in vals if "₸" in v), None)
+            if name and price and len(name) > 2:
+                out.append(RawItem(raw_name=name, price=price))
+    return _dedup(out)
 
 
 def scrape_url(url: str, timeout: float = 20.0) -> list[RawItem]:

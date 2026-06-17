@@ -14,7 +14,7 @@ from datetime import date
 
 from app.db import SessionLocal, init_db
 from app.ingestion.service import ingest_items
-from app.ingestion.web_scraper import scrape_url
+from app.ingestion.web_scraper import scrape_lab_platform, scrape_url
 from app.models import Clinic, Price, ServiceCatalog
 
 # Базовый справочник — чтобы fuzzy-нормализация сводила длинные сырые имена к
@@ -172,6 +172,17 @@ _CITY_CENTER = {
     "Шымкент": (42.3000, 69.5900),
 }
 
+# Лаборатории INVIVO/SAPA — каталог за сессионным AJAX (scrape_lab_platform).
+# (name, city, base_url, city_slug)
+LAB_PLATFORM = [
+    ("Лаборатория INVIVO Алматы", "Алматы", "https://invivo.kz", "almaty"),
+    ("Лаборатория INVIVO Астана", "Астана", "https://invivo.kz", "astana"),
+    ("Лаборатория INVIVO Караганда", "Караганда", "https://invivo.kz", "karaganda"),
+    ("Лаборатория SAPA Алматы", "Алматы", "https://sapalab.com", "almaty"),
+    ("Лаборатория SAPA Астана", "Астана", "https://sapalab.com", "astana"),
+    ("Лаборатория SAPA Шымкент", "Шымкент", "https://sapalab.com", "shymkent"),
+]
+
 
 def _build_clinics():
     """Статичный список + сгенерённые из EXTRA_103KZ (координаты разнесены по городу)."""
@@ -237,6 +248,31 @@ def main(reset: bool = True):
                 items=items, fmt="html", valid_from=date.today(),
             )
             total_prices += res.items_found
+            print(f"  ✓ {name}: {res.items_found} поз., совпало {res.matched}, на проверку {res.needs_review}")
+
+        # Лаборатории INVIVO/SAPA через сессионный AJAX
+        plat_idx = 0
+        for name, city, base, city_slug in LAB_PLATFORM:
+            try:
+                items = scrape_lab_platform(base, city_slug)
+            except Exception as e:
+                print(f"  ✗ {name}: AJAX не удался — {type(e).__name__}: {str(e)[:80]}")
+                continue
+            items = _curate(items, LAB_KEYWORDS)
+            if not items:
+                print(f"  ✗ {name}: 0 позиций после фильтра")
+                continue
+            base_lat, base_lng = _CITY_CENTER[city]
+            lat = round(base_lat + 0.03 - (plat_idx % 3) * 0.02, 5)
+            lng = round(base_lng + 0.03 - (plat_idx // 3) * 0.02, 5)
+            plat_idx += 1
+            clinic = Clinic(name=name, city=city, district="", address="сеть лабораторий",
+                            lat=lat, lng=lng, phone="")
+            db.add(clinic)
+            db.commit()
+            db.refresh(clinic)
+            res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",
+                               items=items, fmt="html", valid_from=date.today())
             print(f"  ✓ {name}: {res.items_found} поз., совпало {res.matched}, на проверку {res.needs_review}")
 
         n_cat = db.query(ServiceCatalog).count()
