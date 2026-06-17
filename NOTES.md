@@ -15,7 +15,9 @@
 - [x] Тесты: 9 pytest (парсер, нормализация, дедуп) — все зелёные.
 - [x] Проверено вручную: upload xlsx→7 match, pdf→parsed, scrape-html→6 match, compare сортирует 6 разных raw-имён в одну услугу.
 - [x] Docs: README, architecture, API, pitch, legal.
-- [~] Frontend: Next.js витрина (subagent) — поиск, сравнение, карта Leaflet.
+- [x] Frontend: Next.js витрина — поиск, сравнение, карта Leaflet; build зелёный.
+- [x] Сквозная интеграция backend+frontend проверена (SSR тянет живые данные: «1900 ₸ / Лучшая цена / Официально от клиники»).
+- [x] CI (GitHub Actions): pytest бэка + build фронта.
 
 ## Технические заметки / гочи
 - На ЭТОМ сервере порт 8000 занят чужим процессом → тестировал на 8077. Канонический дефолт проекта = 8000.
