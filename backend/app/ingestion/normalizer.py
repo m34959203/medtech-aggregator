@@ -12,13 +12,13 @@
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
 from rapidfuzz import fuzz, process
 from sqlalchemy.orm import Session
 
+from .. import llm
 from ..config import settings
 from ..models import ServiceCatalog
 
@@ -43,7 +43,6 @@ class Normalizer:
         self.db = db
         self.threshold = settings.match_confidence_threshold
         self._reload()
-        self._llm = self._init_llm()
 
     def _reload(self):
         self.catalog: list[ServiceCatalog] = self.db.query(ServiceCatalog).all()
@@ -53,16 +52,6 @@ class Normalizer:
             self.index[_clean(svc.canonical_name)] = svc
             for syn in (svc.synonyms or []):
                 self.index[_clean(str(syn))] = svc
-
-    def _init_llm(self):
-        if not settings.groq_api_key:
-            return None
-        try:
-            from groq import Groq
-
-            return Groq(api_key=settings.groq_api_key)
-        except Exception:
-            return None
 
     def _fuzzy(self, raw: str) -> tuple[ServiceCatalog | None, float]:
         if not self.index:
@@ -75,8 +64,7 @@ class Normalizer:
         return self.index[matched_key], score / 100.0
 
     def _llm_decide(self, raw: str, candidates: list[ServiceCatalog]) -> dict | None:
-        if not self._llm:
-            return None
+        """Дизамбигуация через LLM (AlemLLM/Groq). None, если ключа нет/ошибка."""
         cand_text = "\n".join(f"- {c.canonical_name} (категория: {c.category})" for c in candidates)
         prompt = (
             "Ты нормализуешь названия медицинских услуг к единому справочнику.\n"
@@ -88,17 +76,7 @@ class Normalizer:
             'Ответь строго JSON: {"match": "<точное имя кандидата или null>", '
             '"canonical": "<эталонное имя>", "category": "<категория>", "confidence": <0..1>}'
         )
-        try:
-            resp = self._llm.chat.completions.create(
-                model=settings.groq_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-                response_format={"type": "json_object"},
-                max_tokens=300,
-            )
-            return json.loads(resp.choices[0].message.content)
-        except Exception:
-            return None
+        return llm.json_completion(prompt)
 
     def _find_or_create(self, canonical: str, category: str, synonym: str, conf: float, is_new: bool) -> MatchResult:
         ckey = _clean(canonical)
@@ -152,6 +130,58 @@ class Normalizer:
 
         # 4. новая услуга
         return self._find_or_create(raw_name.strip(), "Прочее", raw_name, conf, is_new=True)
+
+    def preview(self, raw_name: str) -> dict:
+        """Сухой прогон нормализации БЕЗ записи в БД — для live-демо движка.
+
+        Возвращает решение и КАК оно принято (fuzzy / LLM / новая услуга),
+        с уверенностью и top-кандидатами. Ничего не мутирует.
+        """
+        svc, conf = self._fuzzy(raw_name)
+        candidates = [c.canonical_name for c in self._top_candidates(raw_name, k=5)]
+
+        # 1. уверенный fuzzy — без сети
+        if svc and conf >= self.threshold:
+            return {
+                "raw": raw_name, "canonical": svc.canonical_name, "category": svc.category,
+                "confidence": round(conf, 3), "method": "fuzzy", "is_new": False,
+                "candidates": candidates,
+            }
+
+        # 2. зона неоднозначности — LLM
+        decision = self._llm_decide(raw_name, self._top_candidates(raw_name, k=5))
+        if decision:
+            llm_conf = float(decision.get("confidence") or 0.85)
+            match_name = decision.get("match")
+            target = self.index.get(_clean(match_name)) if match_name else None
+            if target:
+                return {
+                    "raw": raw_name, "canonical": target.canonical_name, "category": target.category,
+                    "confidence": round(max(conf, llm_conf), 3), "method": "llm", "is_new": False,
+                    "candidates": candidates,
+                }
+            return {
+                "raw": raw_name,
+                "canonical": (decision.get("canonical") or raw_name).strip(),
+                "category": decision.get("category") or "Прочее",
+                "confidence": round(llm_conf, 3), "method": "llm", "is_new": True,
+                "candidates": candidates,
+            }
+
+        # 3. слабый fuzzy без LLM
+        if svc and conf >= 0.6:
+            return {
+                "raw": raw_name, "canonical": svc.canonical_name, "category": svc.category,
+                "confidence": round(conf, 3), "method": "fuzzy-weak", "is_new": False,
+                "candidates": candidates,
+            }
+
+        # 4. новая услуга
+        return {
+            "raw": raw_name, "canonical": raw_name.strip(), "category": "Прочее",
+            "confidence": round(conf, 3), "method": "new", "is_new": True,
+            "candidates": candidates,
+        }
 
     def _top_candidates(self, raw: str, k: int) -> list[ServiceCatalog]:
         if not self.index:

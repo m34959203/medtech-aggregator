@@ -11,6 +11,7 @@ from ..models import Clinic, IngestionRun, Source
 from ..schemas import IngestionResult, IngestionRunOut
 from ..ingestion import api_connector, web_scraper
 from ..ingestion.file_parser import detect_and_parse
+from ..ingestion.normalizer import Normalizer
 from ..ingestion.service import ingest_items
 
 router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
@@ -115,6 +116,25 @@ def _ensure_source(db: Session, clinic_id: int, type_: str, url: str) -> Source:
         db.add(src)
         db.flush()
     return src
+
+
+class PreviewIn(BaseModel):
+    names: list[str]
+
+
+@router.post("/preview")
+def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
+    """Сухой прогон умной нормализации БЕЗ записи в БД — для live-демо движка.
+
+    Жюри вводит любые «кривые» названия → видит, как движок (fuzzy + LLM) сам
+    сводит их к справочнику с уверенностью и методом. Доказывает, что это не
+    хардкод: вход контролирует пользователь.
+    """
+    names = [n.strip() for n in payload.names if n and n.strip()][:30]
+    if not names:
+        raise HTTPException(422, "Передайте хотя бы одно название услуги.")
+    norm = Normalizer(db)  # snapshot справочника; preview() ничего не мутирует
+    return {"results": [norm.preview(n) for n in names]}
 
 
 @router.post("/run-scheduled")

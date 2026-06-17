@@ -38,6 +38,20 @@ def test_fuzzy_matches_variants(db):
     assert r1.confidence > 0.7
 
 
+def test_preview_is_nonmutating_and_reports_method(db):
+    n = Normalizer(db)
+    before = db.query(ServiceCatalog).count()
+    # fuzzy-путь: вариант ОАК сводится к эталону, БД не меняется
+    p = n.preview("ОАК (5 параметров)")
+    assert p["canonical"] == "Общий анализ крови"
+    assert p["method"] in ("fuzzy", "fuzzy-weak") and not p["is_new"]
+    assert 0.0 <= p["confidence"] <= 1.0
+    # совсем чужое без LLM-ключа → новая услуга, но СПРАВОЧНИК НЕ РАСТЁТ (preview)
+    p2 = n.preview("Криоконсервация эмбрионов")
+    assert p2["is_new"] and p2["method"] in ("new", "llm")
+    assert db.query(ServiceCatalog).count() == before  # ничего не записано
+
+
 def test_new_service_created(db):
     n = Normalizer(db)
     before = db.query(ServiceCatalog).count()

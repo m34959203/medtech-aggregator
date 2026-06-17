@@ -63,9 +63,14 @@ function SiteHeader() {
     <header className="sticky top-0 z-30 border-b border-ink-100/80 bg-[var(--background)]/85 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
         <Logo />
-        <p className="hidden text-sm text-ink-500 sm:block">
-          Сравните цены на медуслуги в Казахстане
-        </p>
+        <nav className="flex items-center gap-4 text-sm">
+          <Link
+            href="/normalizer"
+            className="font-medium text-ink-600 transition hover:text-brand-700"
+          >
+            Нормализатор
+          </Link>
+        </nav>
       </div>
     </header>
   );

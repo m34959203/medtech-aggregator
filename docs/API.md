@@ -15,6 +15,16 @@ curl -F clinic_id=1 -F file=@pricelist.xlsx localhost:8000/api/ingest/upload
  "items_found":7,"matched":7,"needs_review":0,"status":"normalized"}
 ```
 
+### `POST /api/ingest/preview` — сухой прогон нормализации (live-демо движка)
+Прогоняет названия через тот же fuzzy+LLM-движок, что и боевой приём, но **без записи
+в БД**. Для демонстрации, что нормализация не захардкожена: вход задаёт пользователь.
+```json
+{"names":["ОАК (5 параметров)","Кл. ан. крови развёрнутый","МРТ головного мозга"]}
+```
+→ `{"results":[{"raw":"...","canonical":"Общий анализ крови","category":"Анализы",
+   "confidence":0.88,"method":"fuzzy","is_new":false,"candidates":[...]}, ...]}`
+`method`: `fuzzy` | `fuzzy-weak` | `llm` | `new`. До 30 названий за запрос.
+
 ### `POST /api/ingest/scrape` — ② веб-парсер
 ```json
 {"clinic_id":3,"url":"https://clinic.kz/price","dynamic":false}

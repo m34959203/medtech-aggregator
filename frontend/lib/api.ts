@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ChatResponse,
   ClinicOut,
+  NormalizationPreview,
   SearchParams,
   ServiceComparison,
   SortOrder,
@@ -94,6 +95,18 @@ export function getCities(signal?: AbortSignal): Promise<string[]> {
 
 export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
   return apiFetch<ClinicOut[]>("/api/clinics", { signal });
+}
+
+export function previewNormalization(
+  names: string[],
+  signal?: AbortSignal,
+): Promise<{ results: NormalizationPreview[] }> {
+  return apiFetch<{ results: NormalizationPreview[] }>("/api/ingest/preview", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ names }),
+    signal,
+  });
 }
 
 export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {

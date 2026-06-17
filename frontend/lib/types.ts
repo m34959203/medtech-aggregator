@@ -41,6 +41,19 @@ export interface ClinicOut {
   phone: string;
 }
 
+// --- Live-демо нормализатора ---
+export type NormMethod = "fuzzy" | "fuzzy-weak" | "llm" | "new";
+
+export interface NormalizationPreview {
+  raw: string;
+  canonical: string;
+  category: string;
+  confidence: number;
+  method: NormMethod;
+  is_new: boolean;
+  candidates: string[];
+}
+
 // --- Чат-помощник ---
 export interface ChatMessage {
   role: "user" | "assistant";
