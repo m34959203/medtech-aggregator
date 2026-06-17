@@ -5,12 +5,12 @@ import { previewNormalization, ApiError } from "@/lib/api";
 import type { NormalizationPreview, NormMethod } from "@/lib/types";
 
 const SAMPLE = [
-  "ОАК (5 параметров)",
+  "ОАК (5 параметров) с лейкоформулой",
   "Кл. ан. крови развёрнутый",
-  "узи брюшной пол.",
-  "Консультация врача-терапевта, первичная",
-  "Магнитно-резонансная томография головного мозга",
-  "Глюкоза (сахар крови)",
+  "Сахар крови натощак",
+  "УЗ-исследование почек",
+  "Консультация кардиолога, первичная",
+  "ЭХОКГ сердца",
 ].join("\n");
 
 const METHOD_META: Record<NormMethod, { label: string; cls: string }> = {
