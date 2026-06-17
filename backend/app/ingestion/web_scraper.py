@@ -7,12 +7,93 @@
 """
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 
 from .file_parser import RawItem, parse_price
 
 UA = "Mozilla/5.0 (compatible; MedtechAggregator/1.0; +https://example.kz/bot)"
+
+
+# --- Адаптеры под конкретные сайты (точные CSS-селекторы) ---------------------
+# Generic-парсер ниже годится для простых таблиц, но крупные сети рендерят
+# карточки услуг BEM-блоками, где имя и цена — разные узлы. Для них — адаптеры.
+
+def _invitro(html: str) -> list[RawItem]:
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[RawItem] = []
+    for card in soup.select(".analyzes-item"):
+        name_el = card.select_one(".analyzes-item__name, .analyzes-item__title, a")
+        price_el = card.select_one(".analyzes-item__total--price")
+        if not name_el or not price_el:
+            continue
+        price = parse_price(price_el.get_text(" ", strip=True))
+        name = name_el.get_text(" ", strip=True)
+        if name and price and len(name) > 2:
+            out.append(RawItem(raw_name=name, price=price))
+    return _dedup(out)
+
+
+def _gemotest(html: str) -> list[RawItem]:
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[RawItem] = []
+    for card in soup.select(".analysis"):
+        name_el = card.select_one("a")
+        price_el = card.select_one(".analysis-price")  # первая = базовая (не «срочно»)
+        if not name_el or not price_el:
+            continue
+        price = parse_price(price_el.get_text(" ", strip=True))
+        name = name_el.get_text(" ", strip=True)
+        if name and price and len(name) > 2:
+            out.append(RawItem(raw_name=name, price=price))
+    return _dedup(out)
+
+
+def _103kz(html: str) -> list[RawItem]:
+    """Универсальный адаптер платформы 103.kz: десятки клиник РК публикуют там
+    прайс по шаблону <бренд>.103.kz/pricing/ в двух вёрстках карточек."""
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[RawItem] = []
+    variants = [
+        (".PersonalCardOfferItem", ".PersonalCardOfferItem__title", ".PersonalCardOfferItem__price"),
+        (".PersonalOffers__item", ".PersonalOffers__title", ".PersonalOffers__price"),
+    ]
+    for item_sel, name_sel, price_sel in variants:
+        for card in soup.select(item_sel):
+            name_el = card.select_one(name_sel)
+            price_el = card.select_one(price_sel)
+            if not name_el or not price_el:
+                continue
+            ptext = price_el.get_text(" ", strip=True).lower()
+            if "уточня" in ptext or "недоступ" in ptext:  # «цена по запросу» → пропуск
+                continue
+            price = parse_price(ptext)  # «от 6 000 тенге» → 6000 (нижняя граница)
+            name = name_el.get_text(" ", strip=True)
+            if name and price and len(name) > 2:
+                out.append(RawItem(raw_name=name, price=price))
+    return _dedup(out)
+
+
+# Точные адаптеры по домену; для суффиксов (платформы-агрегаторы) — _SUFFIX_ADAPTERS.
+_SITE_ADAPTERS = {
+    "invitro.kz": _invitro,
+    "gemotest.kz": _gemotest,
+}
+_SUFFIX_ADAPTERS = {
+    ".103.kz": _103kz,
+}
+
+
+def _adapter_for(url: str):
+    host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if host in _SITE_ADAPTERS:
+        return _SITE_ADAPTERS[host]
+    for suffix, fn in _SUFFIX_ADAPTERS.items():
+        if host.endswith(suffix):
+            return fn
+    return None
 
 
 def _items_from_html(html: str) -> list[RawItem]:
@@ -25,13 +106,20 @@ def _items_from_html(html: str) -> list[RawItem]:
             cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
             if len(cells) < 2:
                 continue
-            name = cells[0]
-            price = None
-            for c in cells[1:]:
-                price = parse_price(c)
-                if price:
-                    break
-            if name and price and len(name) > 2:
+            # цена — числовая ячейка с МАКСИМАЛЬНЫМ значением (прайс ≫ № строки)
+            priced = [(parse_price(c), i) for i, c in enumerate(cells)]
+            priced = [(p, i) for p, i in priced if p]
+            if not priced:
+                continue
+            price, price_idx = max(priced)
+            # имя — самая длинная НЕчисловая ячейка (а не cells[0]: часто там № строки)
+            name = ""
+            for i, c in enumerate(cells):
+                if i == price_idx or parse_price(c) is not None:
+                    continue
+                if len(c) > len(name):
+                    name = c
+            if name and len(name) > 2:
                 items.append(RawItem(raw_name=name, price=price))
 
     # 2. списки «услуга — цена» (часто <li> или <div class=price-row>)
@@ -64,10 +152,11 @@ def _dedup(items: list[RawItem]) -> list[RawItem]:
 
 
 def scrape_url(url: str, timeout: float = 20.0) -> list[RawItem]:
-    with httpx.Client(headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True) as client:
+    with httpx.Client(headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True, verify=False) as client:
         resp = client.get(url)
         resp.raise_for_status()
-        return _items_from_html(resp.text)
+        adapter = _adapter_for(url)
+        return adapter(resp.text) if adapter else _items_from_html(resp.text)
 
 
 def scrape_html(html: str) -> list[RawItem]:

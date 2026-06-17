@@ -101,3 +101,33 @@ def test_csv_plain_comma_not_merged():
     items = parse_csv(b"name,price\n\xd0\x9e\xd0\x90\xd0\x9a,2200\n")
     assert len(items) == 1
     assert items[0].raw_name == "ОАК" and items[0].price == 2200.0
+
+
+# --- Веб-скрапер: таблица с № строки и адаптер 103.kz ---
+from app.ingestion.web_scraper import scrape_html, _103kz  # noqa: E402
+
+
+def test_table_skips_row_number_picks_real_price():
+    """Таблица '№ | услуга | цена': имя — текстовая ячейка, цена — макс. число."""
+    html = """<table>
+      <tr><td>14.</td><td>УЗИ органов брюшной полости</td><td>8 000 тенге</td></tr>
+      <tr><td>16.</td><td>УЗИ почек</td><td>6 000 тенге</td></tr>
+    </table>"""
+    items = {i.raw_name: i.price for i in scrape_html(html)}
+    assert items == {"УЗИ органов брюшной полости": 8000.0, "УЗИ почек": 6000.0}
+
+
+def test_103kz_adapter_variant_b_skips_unspecified():
+    """Адаптер 103.kz (вариант B): тянет имя+цену, пропускает 'уточняйте'."""
+    html = """
+    <div class="PersonalOffers__item">
+      <div class="PersonalOffers__title">Первичный приём терапевта</div>
+      <span class="PersonalOffers__price">от 6 000 тенге</span>
+    </div>
+    <div class="PersonalOffers__item">
+      <div class="PersonalOffers__title">Приём кардиолога</div>
+      <span class="PersonalOffers__price">уточняйте</span>
+    </div>"""
+    items = _103kz(html)
+    assert len(items) == 1
+    assert items[0].raw_name == "Первичный приём терапевта" and items[0].price == 6000.0
