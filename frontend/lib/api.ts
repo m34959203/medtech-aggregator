@@ -7,8 +7,16 @@ import type {
   SortOrder,
 } from "./types";
 
+const stripSlash = (u?: string) => u?.replace(/\/$/, "");
+
+// На клиенте — публичный origin (same-origin: /api проксируется Next-ом на бэкенд).
+// На сервере (SSR) — прямой адрес бэкенда в docker-сети, без round-trip через CF.
+const PUBLIC = stripSlash(process.env.NEXT_PUBLIC_API_URL);
+const INTERNAL = stripSlash(process.env.INTERNAL_API_URL);
+
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+  (typeof window === "undefined" ? INTERNAL || PUBLIC : PUBLIC) ||
+  "http://localhost:8000";
 
 function buildQuery(params: Record<string, string | number | undefined | null>): string {
   const search = new URLSearchParams();

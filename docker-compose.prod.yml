@@ -1,0 +1,48 @@
+# Продакшен-сборка для публикации через Cloudflare-туннель technokod.kz.
+# Один публичный хост medtech.technokod.kz → фронтенд; /api/* фронт проксирует на бэкенд.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker network connect dvorets-gornyakov_default cloudflared-technokod  # (если ещё не в сети)
+#   далее в CF Zero Trust добавить Public Hostname medtech.technokod.kz → http://medtech-frontend:3000
+#
+# Хост-порты 8088/8089 опубликованы только для локальной проверки.
+
+services:
+  medtech-backend:
+    build: ./backend
+    container_name: medtech-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: sqlite:////data/medtech.db
+      MATCH_CONFIDENCE_THRESHOLD: "0.78"
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+    volumes:
+      - medtech_data:/data
+    ports:
+      - "127.0.0.1:8089:8000"   # локальная проверка
+    networks:
+      - medtech
+
+  medtech-frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://medtech.technokod.kz
+    container_name: medtech-frontend
+    restart: unless-stopped
+    environment:
+      INTERNAL_API_URL: http://medtech-backend:8000
+    depends_on:
+      - medtech-backend
+    ports:
+      - "127.0.0.1:8088:3000"   # локальная проверка
+    networks:
+      - medtech
+
+volumes:
+  medtech_data:
+
+networks:
+  medtech:
+    name: medtech_net
