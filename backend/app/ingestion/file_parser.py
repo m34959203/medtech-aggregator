@@ -131,15 +131,23 @@ def parse_excel(content: bytes) -> list[RawItem]:
 
 
 def parse_csv(content: bytes) -> list[RawItem]:
-    for sep in (None, ";", ",", "\t"):
+    # Пробуем все разделители и берём давший БОЛЬШЕ всего позиций, а не первый
+    # успешный: автодетект (sep=None) путает запятую в тексте (";"-файл с
+    # "Тариф, тенге" в шапке) с настоящим разделителем и теряет строки.
+    best: list[RawItem] = []
+    best_key = (0, 0)  # (число позиций, число колонок)
+    for sep in (";", ",", "\t", None):
         try:
             df = pd.read_csv(io.BytesIO(content), sep=sep, engine="python", dtype=object)
-            got = _items_from_df(df)
-            if got:
-                return got
         except Exception:
             continue
-    return []
+        got = _items_from_df(df)
+        # тай-брейк по колонкам: верный делимитер делит строку на ≥2 колонки,
+        # ошибочный (";"-файл, прочитанный как один столбец) слепляет имя с ценой
+        key = (len(got), df.shape[1])
+        if got and key > best_key:
+            best, best_key = got, key
+    return best
 
 
 def parse_pdf(content: bytes) -> list[RawItem]:
