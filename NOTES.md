@@ -31,7 +31,7 @@
 - Один публичный хост `medtech.technokod.kz` → фронт; `/api/*` и `/health` проксирует Next (rewrites → `http://medtech-backend:8000`). NEXT_PUBLIC_API_URL=https://medtech.technokod.kz вшит на build, INTERNAL_API_URL для SSR.
 - Сеть `medtech_net`; контейнер `cloudflared-technokod` подключён к ней (`docker network connect medtech_net cloudflared-technokod`) → видит `medtech-frontend:3000`. Проверено throwaway-curl'ом.
 - Хост-порты для локальной проверки: 8088→фронт, 8089→бэк (только 127.0.0.1).
-- **ОСТАЁТСЯ РУЧНОЙ ШАГ (нет CF API-токена):** в CF Zero Trust → туннель `technokod-server` → Public Hostnames → Add: `medtech` . `technokod.kz`, Service = HTTP `medtech-frontend:3000`.
+- ✅ **ЖИВОЙ (2026-06-17):** `https://medtech.technokod.kz` проверен курлом — фронт 200, `/health` ok, `/api/*` 200. Public Hostname в CF Zero Trust добавлен.
 - Гоча: если watchtower пересоздаст `cloudflared-technokod` — повторить `docker network connect medtech_net cloudflared-technokod`.
 
 ## TODO / куда расти
