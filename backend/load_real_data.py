@@ -78,6 +78,9 @@ CLINICS = [
     ("Лаборатория Gemotest Астана", "Астана", "Есильский", "сеть лабораторий (Астана)",
      51.1450, 71.4200, "8 800 070 13 13",
      "https://gemotest.kz/astana/catalog/", "lab"),
+    ("INVITRO Караганда", "Караганда", "", "сеть лабораторий (Караганда)",
+     49.8060, 73.0850, "+7 7212 50 09 09",
+     "https://invitro.kz/analizes/for-doctors/karaganda/", "lab"),
     # — Клиники (платформа 103.kz, универсальный адаптер) —
     ("Клиника Emirmed", "Алматы", "Бостандыкский", "сеть клиник (Алматы)",
      43.2380, 76.9090, "+7 727 350 11 11", "https://emirmed.103.kz/pricing/", "clinic"),
@@ -120,18 +123,32 @@ EXTRA_103KZ = [
     ("Medical Assistance Group", "Астана", "medical-assistance-group-3", "clinic"),
     ("Pro Clinique", "Астана", "proclinique", "clinic"),
     ("Alanda Clinic", "Астана", "alandaclinic", "clinic"),
+    # — Караганда —
+    ("Jysan Med", "Караганда", "jysan-med", "clinic"),
+    ("Гиппократ — диагностический центр", "Караганда", "gippokrat-24", "clinic"),
+    ("Gala Клиника", "Караганда", "galaklinika", "clinic"),
+    ("Клинико-диагностический центр SANAD", "Караганда", "sanad", "clinic"),
+    ("Integra Clinic", "Караганда", "integra-clinic", "clinic"),
+    ("Диацент", "Караганда", "diacent", "clinic"),
+    ("Clinic Miras", "Караганда", "clinicmiras", "clinic"),
+    ("ЮТА — клиника красоты и здоровья", "Караганда", "juta", "clinic"),
+    ("Городская поликлиника №1", "Караганда", "gp-1", "clinic"),
 ]
 
-_CITY_CENTER = {"Алматы": (43.2380, 76.9450), "Астана": (51.1600, 71.4300)}
+_CITY_CENTER = {
+    "Алматы": (43.2380, 76.9450),
+    "Астана": (51.1600, 71.4300),
+    "Караганда": (49.8060, 73.0850),
+}
 
 
 def _build_clinics():
     """Статичный список + сгенерённые из EXTRA_103KZ (координаты разнесены по городу)."""
     clinics = list(CLINICS)
-    per_city = {"Алматы": 0, "Астана": 0}
+    per_city: dict[str, int] = {}
     for name, city, slug, kind in EXTRA_103KZ:
-        i = per_city[city]
-        per_city[city] += 1
+        i = per_city.get(city, 0)
+        per_city[city] = i + 1
         base_lat, base_lng = _CITY_CENTER[city]
         lat = round(base_lat + (i % 5) * 0.013 - 0.026, 5)
         lng = round(base_lng + (i // 5) * 0.013 - 0.013, 5)
