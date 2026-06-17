@@ -1,6 +1,8 @@
 // Типизированные хелперы для обращения к FastAPI-бэкенду агрегатора.
 
 import type {
+  ChatMessage,
+  ChatResponse,
   ClinicOut,
   SearchParams,
   ServiceComparison,
@@ -92,4 +94,13 @@ export function getCities(signal?: AbortSignal): Promise<string[]> {
 
 export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
   return apiFetch<ClinicOut[]>("/api/clinics", { signal });
+}
+
+export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {
+  return apiFetch<ChatResponse>("/api/chat", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+    signal,
+  });
 }

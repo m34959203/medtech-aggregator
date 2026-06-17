@@ -9,7 +9,7 @@ import CategoryBadge from "./CategoryBadge";
 import SourceBadge from "./SourceBadge";
 import { OfferRowSkeleton } from "./Skeletons";
 
-// Карта только на клиенте — leaflet обращается к window.
+// Карта только на клиенте — Яндекс.Карты обращаются к window.
 const ClinicMap = dynamic(() => import("./ClinicMap"), {
   ssr: false,
   loading: () => (

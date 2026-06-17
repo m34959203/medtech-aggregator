@@ -41,6 +41,31 @@ export interface ClinicOut {
   phone: string;
 }
 
+// --- Чат-помощник ---
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatOffer {
+  service: string;
+  clinic_name: string;
+  city: string;
+  district: string;
+  address: string;
+  phone: string;
+  price: number;
+  currency: string;
+  is_cheapest: boolean;
+}
+
+export interface ChatResponse {
+  reply: string;
+  offers: ChatOffer[];
+  grounded: boolean;
+  llm: boolean;
+}
+
 export interface SearchParams {
   q?: string;
   city?: string;
