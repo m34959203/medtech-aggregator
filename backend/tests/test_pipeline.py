@@ -131,3 +131,33 @@ def test_103kz_adapter_variant_b_skips_unspecified():
     items = _103kz(html)
     assert len(items) == 1
     assert items[0].raw_name == "Первичный приём терапевта" and items[0].price == 6000.0
+
+
+# --- Детерминированная классификация прайсов (load_real_data._classify) ---
+import os, sys  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from load_real_data import _classify  # noqa: E402
+
+
+def test_classify_oak_variants_to_one_canonical():
+    assert _classify("Клинический анализ крови (с лейкоцитарной формулой)")[0] == "Общий анализ крови"
+    assert _classify("Анализ крови. Общий анализ крови (без СОЭ)")[0] == "Общий анализ крови"
+
+
+def test_classify_priem_only_consultation_not_procedure():
+    # консультация → приём; операция/мазок у того же специалиста → НЕ приём
+    assert _classify("Первичный приём врача-гинеколога")[0] == "Приём гинеколога"
+    assert _classify("Биопсия шейки матки у гинеколога") is None
+    assert _classify("Удаление кисты (гинекология)") is None
+
+
+def test_classify_analyte_excludes_panels_and_false_matches():
+    assert _classify("Ферритин") == ("Ферритин", "Анализы")
+    assert _classify("Анемия воспаления (ОАК, СРБ, Ферритин, В12)") is None  # панель
+    assert _classify("Индекс HOMA-IR (Инсулин + Глюкоза)") is None           # не глюкоза
+    assert _classify("Глюкоза (сахар крови)")[0] == "Глюкоза (в крови)"
+
+
+def test_classify_echo_before_ecg():
+    assert _classify("УЗИ сердца с ЭКГ")[0] == "ЭхоКГ (эхокардиография)"
+    assert _classify("ЭКГ с расшифровкой")[0] == "ЭКГ"

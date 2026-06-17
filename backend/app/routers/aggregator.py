@@ -12,6 +12,16 @@ from ..schemas import PriceOffer, ServiceComparison, ServiceOut
 router = APIRouter(prefix="/api", tags=["aggregator"])
 
 
+def _matches(svc: ServiceCatalog, q: str) -> bool:
+    """Совпадение запроса по эталону ИЛИ синонимам (сокращения/народные названия,
+    сырые имена). Фильтруем в Python: SQLite хранит JSON-синонимы в \\uXXXX-эскейпе,
+    поэтому SQL-LIKE по ним не работает с кириллицей. Справочник мал (~30 услуг)."""
+    ql = q.lower().strip()
+    if ql in svc.canonical_name.lower():
+        return True
+    return any(ql in str(syn).lower() for syn in (svc.synonyms or []))
+
+
 @router.get("/categories", response_model=list[str])
 def categories(db: Session = Depends(get_db)):
     rows = db.query(distinct(ServiceCatalog.category)).order_by(ServiceCatalog.category).all()
@@ -32,12 +42,12 @@ def list_services(
     db: Session = Depends(get_db),
 ):
     query = db.query(ServiceCatalog)
-    if q:
-        like = f"%{q.lower()}%"
-        query = query.filter(func.lower(ServiceCatalog.canonical_name).like(like))
     if category:
         query = query.filter(ServiceCatalog.category == category)
-    return query.order_by(ServiceCatalog.canonical_name).limit(limit).all()
+    items = query.order_by(ServiceCatalog.canonical_name).all()
+    if q:
+        items = [s for s in items if _matches(s, q)]
+    return items[:limit]
 
 
 def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sort) -> ServiceComparison:
@@ -112,13 +122,13 @@ def search(
 ):
     """Поиск услуг + сводка сравнения по каждой (для главной витрины)."""
     query = db.query(ServiceCatalog)
-    if q:
-        query = query.filter(func.lower(ServiceCatalog.canonical_name).like(f"%{q.lower()}%"))
     if category:
         query = query.filter(ServiceCatalog.category == category)
+    services = query.order_by(ServiceCatalog.canonical_name).all()
+    if q:
+        services = [s for s in services if _matches(s, q)]
 
     # только услуги, у которых есть хотя бы одна цена
-    services = query.order_by(ServiceCatalog.canonical_name).limit(limit * 3).all()
     results: list[ServiceComparison] = []
     for svc in services:
         cmp = _build_comparison(db, svc, city, max_price, sort)

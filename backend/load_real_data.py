@@ -13,59 +13,89 @@ from __future__ import annotations
 from datetime import date
 
 from app.db import SessionLocal, init_db
-from app.ingestion.service import ingest_items
 from app.ingestion.web_scraper import scrape_lab_platform, scrape_url
 from app.models import Clinic, Price, ServiceCatalog
 
-# Базовый справочник — чтобы fuzzy-нормализация сводила длинные сырые имена к
-# короткому эталону без LLM (GROQ-ключа на проде нет).
-CATALOG = [
-    ("Общий анализ крови", "Анализы"),
-    ("Общий анализ мочи", "Анализы"),
-    ("Биохимический анализ крови", "Анализы"),
-    ("Анализ на глюкозу", "Анализы"),
-    ("Холестерин общий", "Анализы"),
-    ("Витамин D", "Анализы"),
-    ("Ферритин", "Анализы"),
-    ("ТТГ (тиреотропный гормон)", "Анализы"),
-    ("СОЭ", "Анализы"),
-    ("Креатинин", "Анализы"),
-    ("УЗИ брюшной полости", "УЗИ"),
-    ("УЗИ почек", "УЗИ"),
-    ("УЗИ щитовидной железы", "УЗИ"),
-    ("УЗИ органов малого таза", "УЗИ"),
-    ("УЗИ молочных желёз", "УЗИ"),
-    ("Приём терапевта", "Приём врача"),
-    ("Приём кардиолога", "Приём врача"),
-    ("Приём гинеколога", "Приём врача"),
-    ("Приём невролога", "Приём врача"),
-    ("Приём офтальмолога", "Приём врача"),
-    ("Приём уролога", "Приём врача"),
-    ("Приём эндокринолога", "Приём врача"),
-    ("ЭКГ", "Процедуры"),
-    ("ЭхоКГ (эхокардиография)", "Процедуры"),
+# ДЕТЕРМИНИРОВАННАЯ карта «ключ в сыром названии → эталон». Курация уже знает
+# специальность/аналит по ключу, поэтому привязываем к эталону напрямую, минуя
+# fuzzy-нормализатор (без LLM он путал специалистов: ЛОР→гинеколог, дробил
+# ЭКГ/Электрокардиограмму на два каноне и т.п.). Порядок ВАЖЕН — первый матч
+# выигрывает; require — обязательная доп-подстрока, exclude — стоп-слова.
+# (keyword, canonical, category, require, excludes)
+_AN, _P, _UZ, _PR = "Анализы", "Приём врача", "УЗИ", "Процедуры"
+# Приём = только консультация (а не процедура/операция «у гинеколога»).
+_CONSULT = ("прием", "приём", "консультац", "осмотр")
+_UZI = ("узи", "ультразвук")
+# Стоп-слова: панели/комплексы (чтобы аналит не ловил «Анемия (…Ферритин…)»)
+# и операции/процедуры у специалиста (чтобы приём не ловил хирургию).
+_PANEL = ("комплекс", "профил", "пакет", "скрининг", "программ", "анемия",
+          "check", "чек-ап", "обследование", "диспансер")
+_PROC = ("операц", "удаление", "биопси", "пункци", "инъекц", "блокад", "массаж",
+         "prp", "плазмолифт", "склеротерап", "вмешательств", "манипул", "забор",
+         "мазок", "лечение", "выскаблив", "прижигани", "коагул", "эксцизи")
+SPECS: list[tuple[str, str, str, tuple[str, ...], tuple[str, ...]]] = [
+    # — Сердце: ЭхоКГ раньше ЭКГ, чтобы «УЗИ сердца с ЭКГ» не ушло в ЭКГ —
+    ("эхокардиограф", "ЭхоКГ (эхокардиография)", _PR, (), ()),
+    ("эхокг", "ЭхоКГ (эхокардиография)", _PR, (), ()),
+    ("узи сердца", "ЭхоКГ (эхокардиография)", _PR, (), ()),
+    ("электрокардиограмма", "ЭКГ", _PR, (), ("суточн", "холтер", "узи", "эхо")),
+    ("экг", "ЭКГ", _PR, (), ("суточн", "холтер", "узи", "эхо", "велоэрго", "тредмил")),
+    # — УЗИ органов (только если есть «узи»/«ультразвук») —
+    ("брюшной полости", "УЗИ брюшной полости", _UZ, _UZI, ("обзорное",)),
+    ("почек", "УЗИ почек", _UZ, _UZI, ()),
+    ("щитовид", "УЗИ щитовидной железы", _UZ, _UZI, ()),
+    ("малого таза", "УЗИ органов малого таза", _UZ, _UZI, ()),
+    ("молочных желез", "УЗИ молочных желёз", _UZ, _UZI, ()),
+    # — Приёмы: только консультация (require), без процедур (exclude) —
+    ("кардиолог", "Приём кардиолога", _P, _CONSULT, _PROC),
+    ("гинеколог", "Приём гинеколога", _P, _CONSULT, _PROC),
+    ("невропатолог", "Приём невролога", _P, _CONSULT, _PROC),
+    ("невролог", "Приём невролога", _P, _CONSULT, _PROC),
+    ("офтальмолог", "Приём офтальмолога", _P, _CONSULT, _PROC),
+    ("окулист", "Приём офтальмолога", _P, _CONSULT, _PROC),
+    ("эндокринолог", "Приём эндокринолога", _P, _CONSULT, _PROC),
+    ("дерматолог", "Приём дерматолога", _P, _CONSULT, _PROC),
+    ("уролог", "Приём уролога", _P, _CONSULT, _PROC),
+    ("оторинолар", "Приём ЛОР-врача", _P, _CONSULT, _PROC),
+    ("лор-врач", "Приём ЛОР-врача", _P, _CONSULT, _PROC),
+    ("терапевт", "Приём терапевта", _P, _CONSULT,
+     _PROC + ("физиотерап", "психотерап", "стоматолог", "мануальн", "озонотерап")),
+    # — Анализы: один аналит, не панель (_PANEL в excludes) —
+    ("клинический анализ крови", "Общий анализ крови", _AN, (), ()),
+    ("общий анализ крови", "Общий анализ крови", _AN, (), ()),
+    ("общий анализ мочи", "Общий анализ мочи", _AN, (), ()),
+    ("гликированный", "Гликированный гемоглобин (HbA1c)", _AN, (), _PANEL),
+    ("гликозилированный", "Гликированный гемоглобин (HbA1c)", _AN, (), _PANEL),
+    ("hba1c", "Гликированный гемоглобин (HbA1c)", _AN, (), _PANEL),
+    ("глюкоза", "Глюкоза (в крови)", _AN, (),
+     _PANEL + ("толерант", "нагруз", "ликвор", "homa", "инсулин", "индекс")),
+    ("сахар крови", "Глюкоза (в крови)", _AN, (), _PANEL),
+    ("холестерин общий", "Холестерин общий", _AN, (), _PANEL),
+    ("витамин d", "Витамин D", _AN, (), _PANEL + ("дигидрокси", "1,25", "25-он", "25(он")),
+    ("ферритин", "Ферритин", _AN, (), _PANEL),
+    ("тиреотропный", "ТТГ (тиреотропный гормон)", _AN, (), _PANEL),
+    ("тиротропин", "ТТГ (тиреотропный гормон)", _AN, (), _PANEL),
+    ("креатинин", "Креатинин", _AN, (), _PANEL),
+    ("билирубин общий", "Билирубин общий", _AN, (), _PANEL),
+    ("биохимический анализ крови", "Биохимический анализ крови", _AN, (), ()),
+    ("с-реактивный", "С-реактивный белок (СРБ)", _AN, (), _PANEL),
 ]
 
-# Курируемые срезы: оставляем позиции, чьё сырое имя содержит один из ключей.
-# Иначе крупная сеть залила бы 300-2000 позиций и зашумила справочник.
-LAB_KEYWORDS = [
-    # ОАК у лабораторий зовётся «Общий» ИЛИ «Клинический анализ крови» —
-    # оба ключа ведут к одному эталону через fuzzy-нормализацию.
-    "общий анализ крови", "клинический анализ крови",
-    "общий анализ мочи", "глюкоза", "холестерин общий",
-    "витамин d", "ферритин", "тиреотропный", "креатинин",
-    "билирубин общий", "биохими", "с-реактивный", "гликированный",
-    # «соэ» НЕ ключ: standalone-СОЭ без LLM ложно мержится в ОАК (синоним «…и СОЭ»).
-]
-CLINIC_KEYWORDS = [
-    "терапевт", "кардиолог", "гинеколог", "невролог", "невропатолог",
-    "офтальмолог", "уролог", "эндокринолог", "дерматолог", "лор",
-    "брюшной полости", "почек", "щитовид", "малого таза", "молочных желез",
-    "эхокардиограф", "экг",
-]
-# Органные ключи неоднозначны («операция на органах брюшной полости» ≠ УЗИ).
-# Засчитываем их только если в названии явно есть «узи».
-_ULTRASOUND_ONLY = {"брюшной полости", "почек", "щитовид", "малого таза", "молочных желез"}
+# Поисковые алиасы (народные/сокращённые названия) — кладём в синонимы эталона,
+# чтобы поиск находил по «ОАК», «сахар», «кровь», «СРБ» и т.п. (поиск ищет и по синонимам).
+ALIASES = {
+    "Общий анализ крови": ["ОАК", "анализ крови", "кровь", "клинический анализ крови"],
+    "Общий анализ мочи": ["ОАМ", "анализ мочи", "моча"],
+    "Глюкоза (в крови)": ["сахар", "сахар крови", "глюкоза"],
+    "Холестерин общий": ["холестерин"],
+    "Биохимический анализ крови": ["биохимия", "БАК", "биохимический анализ"],
+    "ТТГ (тиреотропный гормон)": ["ТТГ", "гормон щитовидной железы"],
+    "Гликированный гемоглобин (HbA1c)": ["HbA1c", "гликированный гемоглобин", "диабет"],
+    "С-реактивный белок (СРБ)": ["СРБ", "CRP", "воспаление"],
+    "Витамин D": ["витамин д", "vitamin d"],
+    "ЭКГ": ["электрокардиограмма", "кардиограмма"],
+    "ЭхоКГ (эхокардиография)": ["эхокардиография", "УЗИ сердца", "эхо сердца"],
+}
 
 # (name, city, district, address, lat, lng, phone, url, kind)  kind: lab|clinic
 CLINICS = [
@@ -211,18 +241,34 @@ def _build_clinics():
     return clinics
 
 
-def _curate(items, keywords):
-    """Фильтр по ключам + не больше одной позиции на ключ (первая = базовая цена)."""
-    seen, out = set(), []
-    for it in items:
-        low = it.raw_name.lower()
-        key = next((k for k in keywords if k in low
-                    and (k not in _ULTRASOUND_ONLY or "узи" in low)), None)
-        if key is None or key in seen:
+def _classify(raw_name: str):
+    """Детерминированно сопоставляет сырое имя эталону по SPECS. → (canonical, category) | None.
+    require — кортеж: должен присутствовать ХОТЯ БЫ ОДИН. excludes — стоп-слова."""
+    low = raw_name.lower()
+    for kw, canonical, category, require, excludes in SPECS:
+        if kw not in low:
             continue
-        seen.add(key)
-        out.append(it)
-    return out
+        if require and not any(r in low for r in require):
+            continue
+        if any(x in low for x in excludes):
+            continue
+        return canonical, category
+    return None
+
+
+def _curate(items):
+    """Сводит сырые позиции к эталонам: одна позиция на эталон (минимальная цена).
+    → {canonical: (category, price, raw_name)}."""
+    best: dict[str, tuple[str, float, str]] = {}
+    for it in items:
+        hit = _classify(it.raw_name)
+        if not hit:
+            continue
+        canonical, category = hit
+        cur = best.get(canonical)
+        if cur is None or it.price < cur[1]:
+            best[canonical] = (category, it.price, it.raw_name)
+    return best
 
 
 def main(reset: bool = True):
@@ -235,35 +281,47 @@ def main(reset: bool = True):
             db.query(Clinic).delete()
             db.commit()
 
-        for name, category in CATALOG:
-            db.add(ServiceCatalog(canonical_name=name, category=category, synonyms=[]))
-        db.commit()
+        cache: dict[str, ServiceCatalog] = {}
 
-        total_prices = 0
+        def get_service(canonical: str, category: str) -> ServiceCatalog:
+            sc = cache.get(canonical)
+            if sc is None:
+                sc = ServiceCatalog(canonical_name=canonical, category=category,
+                                    synonyms=list(ALIASES.get(canonical, [])))
+                db.add(sc)
+                db.flush()
+                cache[canonical] = sc
+            return sc
+
+        def load(name, city, lat, lng, items, district="", address="", phone=""):
+            curated = _curate(items)
+            if not curated:
+                print(f"  ✗ {name}: 0 позиций после фильтра")
+                return
+            clinic = Clinic(name=name, city=city, district=district, address=address,
+                            lat=lat, lng=lng, phone=phone)
+            db.add(clinic)
+            db.flush()
+            for canonical, (category, price, raw) in curated.items():
+                sc = get_service(canonical, category)
+                # копим синонимы — по ним работает поиск
+                if raw not in (sc.synonyms or []):
+                    sc.synonyms = list(sc.synonyms or []) + [raw]
+                db.add(Price(
+                    clinic_id=clinic.id, service_id=sc.id, source_type="web_scrape",
+                    raw_name=raw, price=price, currency="KZT",
+                    match_confidence=1.0, valid_from=date.today(),
+                ))
+            db.commit()
+            print(f"  ✓ {name}: {len(curated)} услуг")
+
         for name, city, district, address, lat, lng, phone, url, kind in _build_clinics():
             try:
                 items = scrape_url(url, timeout=45)
             except Exception as e:
                 print(f"  ✗ {name}: скрапинг не удался — {type(e).__name__}: {str(e)[:80]}")
                 continue
-            # Клиники бывают многопрофильными — у них есть и приёмы/УЗИ, и анализы,
-            # поэтому курируем их обоими наборами ключей (лаборатории — только анализы).
-            keys = LAB_KEYWORDS if kind == "lab" else CLINIC_KEYWORDS + LAB_KEYWORDS
-            items = _curate(items, keys)
-            if not items:
-                print(f"  ✗ {name}: 0 позиций после фильтра")
-                continue
-            clinic = Clinic(name=name, city=city, district=district, address=address,
-                            lat=lat, lng=lng, phone=phone)
-            db.add(clinic)
-            db.commit()
-            db.refresh(clinic)
-            res = ingest_items(
-                db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",
-                items=items, fmt="html", valid_from=date.today(),
-            )
-            total_prices += res.items_found
-            print(f"  ✓ {name}: {res.items_found} поз., совпало {res.matched}, на проверку {res.needs_review}")
+            load(name, city, lat, lng, items, district, address, phone)
 
         # Лаборатории INVIVO/SAPA через сессионный AJAX
         plat_idx = 0
@@ -273,22 +331,11 @@ def main(reset: bool = True):
             except Exception as e:
                 print(f"  ✗ {name}: AJAX не удался — {type(e).__name__}: {str(e)[:80]}")
                 continue
-            items = _curate(items, LAB_KEYWORDS)
-            if not items:
-                print(f"  ✗ {name}: 0 позиций после фильтра")
-                continue
             base_lat, base_lng = _CITY_CENTER[city]
             lat = round(base_lat + 0.03 - (plat_idx % 3) * 0.02, 5)
             lng = round(base_lng + 0.03 - (plat_idx // 3) * 0.02, 5)
             plat_idx += 1
-            clinic = Clinic(name=name, city=city, district="", address="сеть лабораторий",
-                            lat=lat, lng=lng, phone="")
-            db.add(clinic)
-            db.commit()
-            db.refresh(clinic)
-            res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",
-                               items=items, fmt="html", valid_from=date.today())
-            print(f"  ✓ {name}: {res.items_found} поз., совпало {res.matched}, на проверку {res.needs_review}")
+            load(name, city, lat, lng, items, address="сеть лабораторий")
 
         n_cat = db.query(ServiceCatalog).count()
         n_price = db.query(Price).count()
