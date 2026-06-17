@@ -1,11 +1,15 @@
 """Чат-помощник пациента — диалоговый поиск по витрине цен.
 
 Помощник = НАДСТРОЙКА над агрегатором, а не отдельный «всезнающий» LLM:
-Groq получает единственный инструмент search_prices, который ходит в тот же
-нормализованный справочник, что и витрина сравнения. Поэтому бот не выдумывает
-цены/клиники — он отвечает строго по данным.
+сначала ПРИНУДИТЕЛЬНО ищем по тому же нормализованному справочнику, что и
+витрина, и вкладываем результаты в контекст модели (retrieval-injection).
+Поэтому бот не выдумывает цены/клиники — отвечает строго по данным.
 
-Деградация: без GROQ_API_KEY (или при ошибке сети) endpoint отвечает
+Провайдер OpenAI-совместимый и настраивается (LLM_PROVIDER): AlemLLM (KZ, по
+умолчанию при наличии ключа) или Groq. Tool-calling НЕ используется — AlemLLM
+его не поддерживает, а retrieval-injection работает с любым провайдером.
+
+Деградация: без ключа провайдера (или при ошибке сети) endpoint отвечает
 детерминированным поиском-сводкой. Демо работает всегда — важно для жюри.
 """
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from rapidfuzz import fuzz
@@ -150,125 +155,74 @@ def _summaries_for_llm(summaries) -> dict:
     }
 
 
-# --- LLM-путь (Groq tool-calling) ---
+# --- LLM-путь (retrieval-injection, OpenAI-совместимый: AlemLLM / Groq) ---
+# AlemLLM не поддерживает tool-calling (tool_choice=auto отклоняется, named-tool
+# падает 500), поэтому используем принудительный retrieval: сами ищем по базе и
+# вкладываем результаты в контекст. Паттерн работает с любым провайдером.
 _SYSTEM = (
     "Ты — МедЦена, дружелюбный помощник пациента на сайте-агрегаторе цен на "
     "медицинские услуги в Казахстане. Сегодня {today}.\n"
     "Помогаешь найти услугу дешевле, объясняешь где её делают и сравниваешь клиники.\n"
     "Доступные города: {cities}.\n"
     "ПРАВИЛА:\n"
-    "- Цены, клиники, адреса и телефоны бери ТОЛЬКО из результата инструмента "
-    "search_prices. Никогда ничего не выдумывай.\n"
-    "- Если вопрос про цену/услугу — обязательно вызови search_prices.\n"
+    "- Цены, клиники, адреса и телефоны бери ТОЛЬКО из блока РЕЗУЛЬТАТЫ ПОИСКА ниже. "
+    "Никогда ничего не выдумывай и не добавляй клиник, которых там нет.\n"
     "- Отвечай кратко и по-русски, явно называй самую выгодную клинику и цену в тенге.\n"
-    "- Если данных нет — честно скажи об этом и предложи похожие услуги из справочника.\n"
+    "- Если в результатах пусто — честно скажи, что по запросу цен пока нет, и предложи "
+    "уточнить название услуги.\n"
     "- Цены справочные: в конце ответа с ценами напомни уточнять стоимость в клинике.\n"
     "- На вопросы не по теме медуслуг вежливо возвращай к теме.\n"
-    "Справочник услуг (примеры): {catalog}"
+    "Справочник услуг (примеры): {catalog}\n\n"
+    "РЕЗУЛЬТАТЫ ПОИСКА ПО БАЗЕ (JSON):\n{results}"
 )
 
-_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_prices",
-            "description": (
-                "Поиск цен на медицинскую услугу по клиникам Казахстана в базе "
-                "агрегатора. Возвращает предложения, отсортированные по цене."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "название услуги, напр. 'общий анализ крови', 'УЗИ брюшной полости'",
-                    },
-                    "city": {"type": "string", "description": "город для фильтра (опционально)"},
-                    "max_price": {"type": "number", "description": "максимальная цена в тенге (опционально)"},
-                    "sort": {
-                        "type": "string",
-                        "enum": ["price_asc", "price_desc"],
-                        "description": "сортировка, по умолчанию price_asc",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    }
-]
+
+def _detect_city(db: Session, text: str) -> str | None:
+    """Находит упомянутый в запросе город из числа имеющихся в базе."""
+    low = text.lower()
+    for (city,) in db.query(distinct(Clinic.city)).all():
+        if city and city.lower() in low:
+            return city
+    return None
+
+
+def _chat_completion(messages: list[dict]) -> str:
+    """Единый OpenAI-совместимый вызов для выбранного провайдера."""
+    if settings.chat_provider == "alem":
+        base, key, model = settings.alem_base_url, settings.alem_api_key, settings.alem_model
+    else:
+        base, key, model = "https://api.groq.com/openai/v1", settings.groq_api_key, settings.groq_model
+    resp = httpx.post(
+        f"{base.rstrip('/')}/chat/completions",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={"model": model, "messages": messages, "temperature": 0.3, "max_tokens": 700},
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"] or ""
 
 
 def _run_llm(db: Session, messages: list[ChatMessage]):
-    from groq import Groq
+    user_q = next((m.content for m in reversed(messages) if m.role == "user"), "")
+    city = _detect_city(db, user_q)
+    offers, summaries = _search_offers(db, user_q, city=city)
 
-    client = Groq(api_key=settings.groq_api_key)
     cities = [c[0] for c in db.query(distinct(Clinic.city)).all() if c[0]]
     catalog = [s.canonical_name for s in db.query(ServiceCatalog).all()]
     system = _SYSTEM.format(
         today=date.today().isoformat(),
         cities=", ".join(cities) or "—",
         catalog=", ".join(catalog[:40]) or "—",
+        results=json.dumps(_summaries_for_llm(summaries), ensure_ascii=False),
     )
     convo: list[dict] = [{"role": "system", "content": system}]
     convo += [{"role": m.role, "content": m.content} for m in messages]
-
-    collected: list[ChatOffer] = []
-    last_text = ""
-    for _ in range(3):  # ограничиваем число раундов tool-calling
-        resp = client.chat.completions.create(
-            model=settings.groq_model,
-            messages=convo,
-            tools=_TOOLS,
-            tool_choice="auto",
-            temperature=0.3,
-            max_tokens=700,
-        )
-        msg = resp.choices[0].message
-        last_text = msg.content or last_text
-        if not msg.tool_calls:
-            return last_text, collected
-
-        convo.append(
-            {
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                    }
-                    for tc in msg.tool_calls
-                ],
-            }
-        )
-        for tc in msg.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            offers, summaries = _search_offers(
-                db,
-                str(args.get("query", "")),
-                args.get("city"),
-                args.get("max_price"),
-                args.get("sort") or "price_asc",
-            )
-            collected.extend(offers)
-            convo.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "name": "search_prices",
-                    "content": json.dumps(_summaries_for_llm(summaries), ensure_ascii=False),
-                }
-            )
-
-    return last_text or "Уточните, пожалуйста, какую услугу вы ищете.", collected
+    text = _chat_completion(convo)
+    return text or "Уточните, пожалуйста, какую услугу вы ищете.", offers
 
 
 def _fallback(db: Session, messages: list[ChatMessage]) -> ChatResponse:
-    """Детерминированный ответ без LLM — демо живёт даже без Groq."""
+    """Детерминированный ответ без LLM — демо живёт даже без ключа провайдера."""
     user = next((m.content for m in reversed(messages) if m.role == "user"), "")
     offers, summaries = _search_offers(db, user)
     if not summaries:
@@ -305,7 +259,8 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             grounded=False,
             llm=False,
         )
-    if not settings.groq_api_key:
+    has_key = settings.alem_api_key if settings.chat_provider == "alem" else settings.groq_api_key
+    if not has_key:
         return _fallback(db, req.messages)
     try:
         reply, offers = _run_llm(db, req.messages)

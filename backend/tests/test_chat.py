@@ -57,3 +57,22 @@ def test_fallback_no_match_is_honest(db):
     resp = _fallback(db, [ChatMessage(role="user", content="пересадка сердца на Марсе")])
     assert not resp.grounded and resp.offers == []
     assert "не нашёл" in resp.reply.lower()
+
+
+def test_detect_city(db):
+    from app.routers.chat import _detect_city
+    assert _detect_city(db, "сколько стоит ОАК в Алматы?") == "Алматы"
+    assert _detect_city(db, "просто общий анализ крови") is None
+
+
+def test_chat_provider_selection():
+    from app.config import Settings
+    # _env_file=None — игнорируем локальный .env, проверяем чистую логику
+    def S(**kw):
+        return Settings(_env_file=None, **kw)
+    # auto: alem при наличии ключа, иначе groq
+    assert S(alem_api_key="x").chat_provider == "alem"
+    assert S(alem_api_key="").chat_provider == "groq"
+    # явный выбор уважается
+    assert S(llm_provider="groq", alem_api_key="x").chat_provider == "groq"
+    assert S(llm_provider="alem").chat_provider == "alem"

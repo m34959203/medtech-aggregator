@@ -65,11 +65,13 @@
 - Источники со СЛОЖНЫМ парсингом (отложены, нужен Playwright/JSON-API): INVIVO, SAPA (JS-рендер), КДЛ Олимп (anti-bot/redirect-loop). On Clinic/Rahat — свои таблицы, мини-парсеры на потом.
 - Координаты клиник приблизительные (по адресу); перед акцентом на карту — перегеокодировать.
 
-## Чат-помощник пациента (2026-06-17)
-- **Бот = надстройка над агрегатором, а не «всезнающий» LLM.** Бэкенд `app/routers/chat.py`, `POST /api/chat` (`{messages:[{role,content}]}`). Groq (llama-3.3-70b) с ЕДИНСТВЕННЫМ инструментом `search_prices`, который ходит в тот же нормализованный справочник, что и витрина (фаззи-подбор услуг `_rank_services` → `_build_comparison`). Поэтому бот не выдумывает цены/клиники — отвечает строго по базе, помечает 🏆 самую дешёвую.
-- **Демо живёт всегда:** без `GROQ_API_KEY` (или при ошибке сети/квоты) endpoint деградирует в детерминированный поиск-сводку `_fallback` (та же воронка, без LLM). Прод уже прокидывает `GROQ_API_KEY` в backend через compose.
-- Фронт: `components/ChatWidget.tsx` — плавающая кнопка → панель, бренд-токены `brand-*`, подсказки на старте, карточки предложений с «Позвонить», дисклеймер «цены справочные». Подключён в `app/layout.tsx` (на всех страницах). API: `lib/api.ts → chat()`.
-- Тесты: `backend/tests/test_chat.py` (4) — фаззи-подбор по синониму/опечатке, фолбэк отдаёт дешёвую первой, честный «не нашёл». Всего backend **21 pytest зелёные**. Фронт `npm run build` зелёный.
+## Чат-помощник пациента (2026-06-17, на AlemLLM)
+- **Бот = надстройка над агрегатором, а не «всезнающий» LLM.** Бэкенд `app/routers/chat.py`, `POST /api/chat` (`{messages:[{role,content}]}`). Паттерн **retrieval-injection**: сначала ПРИНУДИТЕЛЬНО ищем по тому же нормализованному справочнику, что и витрина (`_detect_city` + `_rank_services` фаззи → `_build_comparison`), вкладываем JSON-результаты в системный промпт, и модель отвечает строго по ним. Бот не выдумывает цены/клиники, помечает 🏆 самую дешёвую.
+- **Провайдер на AlemLLM (казахстанская модель)** — нарративный плюс для KZ-хакатона, без geo-block. OpenAI-совместимый endpoint `https://llm.alem.ai/v1`, унифицированный httpx-вызов `_chat_completion` работает и для AlemLLM, и для Groq. Выбор через `LLM_PROVIDER` (auto/alem/groq), см. `config.chat_provider`. **Tool-calling НЕ используем — AlemLLM его не держит** (`tool_choice:auto` отклоняется, named-tool падает 500 на токенизаторе), поэтому и выбран retrieval-injection (надёжнее и провайдер-агностичен).
+- **Демо живёт всегда:** без ключа провайдера (или при ошибке сети/квоты) endpoint деградирует в детерминированный `_fallback`.
+- Прод-env: `LLM_PROVIDER=alem` + `ALEM_API_KEY=...` в backend (добавлены в `docker-compose.prod.yml`). Локально — `backend/.env` (в .gitignore), документация в `backend/.env.example`.
+- Фронт: `components/ChatWidget.tsx` — плавающая кнопка → панель, бренд-токены `brand-*`, подсказки, карточки предложений с «Позвонить», дисклеймер. Подключён в `app/layout.tsx`. API: `lib/api.ts → chat()`.
+- Тесты: `backend/tests/test_chat.py` (6). Всего backend **23 pytest зелёные**, фронт build зелёный. Проверено вживую: запрос «Где в Алматы дешевле ОАК?» → AlemLLM вернул «Клиника Б — 1900 ₸» строго по базе.
 
 ## Карта переведена на Яндекс.Карты (2026-06-17)
 - `components/ClinicMap.tsx` уже был на **Яндекс JS API** (не Leaflet, как в раннем статусе выше). Ключ `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` (бесплатный тариф «с ограничениями», domain-restrict по Referer `medtech.technokod.kz`). Прокинут: `.env.local` (dev), `.env.example`, build-arg в `docker-compose.prod.yml` ← `YANDEX_MAPS_API_KEY`. NEXT_PUBLIC вшивается на build → при смене ключа пересборка.

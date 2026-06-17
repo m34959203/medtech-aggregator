@@ -9,5 +9,19 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     match_confidence_threshold: float = 0.78
 
+    # Чат-помощник. Провайдер OpenAI-совместимый: "alem" (AlemLLM, KZ) или "groq".
+    # По умолчанию авто: если задан alem_api_key — alem, иначе groq.
+    llm_provider: str = "auto"  # auto / alem / groq
+    alem_api_key: str = ""
+    alem_base_url: str = "https://llm.alem.ai/v1"
+    alem_model: str = "alemllm"
+
+    @property
+    def chat_provider(self) -> str:
+        """Фактический провайдер чата с учётом 'auto' и наличия ключей."""
+        if self.llm_provider in ("alem", "groq"):
+            return self.llm_provider
+        return "alem" if self.alem_api_key else "groq"
+
 
 settings = Settings()

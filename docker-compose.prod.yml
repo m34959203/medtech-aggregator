@@ -17,6 +17,9 @@ services:
       MATCH_CONFIDENCE_THRESHOLD: "0.78"
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      # Чат-помощник: провайдер LLM (auto/alem/groq). AlemLLM — KZ-модель.
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      ALEM_API_KEY: ${ALEM_API_KEY:-}
     volumes:
       - medtech_data:/data
     ports:
