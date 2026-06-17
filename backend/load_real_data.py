@@ -59,6 +59,9 @@ CLINIC_KEYWORDS = [
     "брюшной полости", "почек", "щитовид", "малого таза", "молочных желез",
     "эхокардиограф", "экг",
 ]
+# Органные ключи неоднозначны («операция на органах брюшной полости» ≠ УЗИ).
+# Засчитываем их только если в названии явно есть «узи».
+_ULTRASOUND_ONLY = {"брюшной полости", "почек", "щитовид", "малого таза", "молочных желез"}
 
 # (name, city, district, address, lat, lng, phone, url, kind)  kind: lab|clinic
 CLINICS = [
@@ -94,13 +97,56 @@ CLINICS = [
      "https://luchcenter.kz/uslugi/33-prejskurant", "clinic"),
 ]
 
+# Доп. клиники на платформе 103.kz (проверены: ≥7 сравнимых услуг в прайсе).
+# (name, city, slug, kind)
+EXTRA_103KZ = [
+    ("Центральная семейная клиника", "Алматы", "semeinaya-klinika", "clinic"),
+    ("On Clinic Алматы", "Алматы", "on-clinic", "clinic"),
+    ("Алматинский региональный диагностический центр", "Алматы", "ardc", "clinic"),
+    ("ASIA MED clinic", "Алматы", "asia-med-clinic", "clinic"),
+    ("Damed clinic", "Алматы", "damed-clinic", "clinic"),
+    ("Рахат — центр семейной медицины", "Алматы", "rahat-1", "clinic"),
+    ("Medical Park", "Алматы", "medical-park", "clinic"),
+    ("Диагностический центр Smart Health (КазНУ)", "Алматы", "smart-health", "clinic"),
+    ("Меди-Сервис", "Алматы", "mediservice", "clinic"),
+    ("Медикер Алатау", "Алматы", "mediker-alatay", "clinic"),
+    ("КДЛ Олимп", "Алматы", "kdlolymp", "lab"),
+    ("Национальный научный медицинский центр", "Астана", "nacionalynyj-nauchnyj-medcentr", "clinic"),
+    ("Президентская клиника (БМЦ УДП РК)", "Астана", "bmcudpkz", "clinic"),
+    ("ЦЕТНАМЕД (центр народной медицины)", "Астана", "centr-narodnoj-mediciny-1", "clinic"),
+    ("Прогресс Мед", "Астана", "progress-med", "clinic"),
+    ("Многопрофильный медцентр (онкодиспансер)", "Астана", "onkologicheskij-dispanser", "clinic"),
+    ("Ansar", "Астана", "ansar-astana", "clinic"),
+    ("Medical Assistance Group", "Астана", "medical-assistance-group-3", "clinic"),
+    ("Pro Clinique", "Астана", "proclinique", "clinic"),
+    ("Alanda Clinic", "Астана", "alandaclinic", "clinic"),
+]
+
+_CITY_CENTER = {"Алматы": (43.2380, 76.9450), "Астана": (51.1600, 71.4300)}
+
+
+def _build_clinics():
+    """Статичный список + сгенерённые из EXTRA_103KZ (координаты разнесены по городу)."""
+    clinics = list(CLINICS)
+    per_city = {"Алматы": 0, "Астана": 0}
+    for name, city, slug, kind in EXTRA_103KZ:
+        i = per_city[city]
+        per_city[city] += 1
+        base_lat, base_lng = _CITY_CENTER[city]
+        lat = round(base_lat + (i % 5) * 0.013 - 0.026, 5)
+        lng = round(base_lng + (i // 5) * 0.013 - 0.013, 5)
+        clinics.append((name, city, "", "сеть клиник / 103.kz", lat, lng, "",
+                        f"https://{slug}.103.kz/pricing/", kind))
+    return clinics
+
 
 def _curate(items, keywords):
     """Фильтр по ключам + не больше одной позиции на ключ (первая = базовая цена)."""
     seen, out = set(), []
     for it in items:
         low = it.raw_name.lower()
-        key = next((k for k in keywords if k in low), None)
+        key = next((k for k in keywords if k in low
+                    and (k not in _ULTRASOUND_ONLY or "узи" in low)), None)
         if key is None or key in seen:
             continue
         seen.add(key)
@@ -123,7 +169,7 @@ def main(reset: bool = True):
         db.commit()
 
         total_prices = 0
-        for name, city, district, address, lat, lng, phone, url, kind in CLINICS:
+        for name, city, district, address, lat, lng, phone, url, kind in _build_clinics():
             try:
                 items = scrape_url(url, timeout=45)
             except Exception as e:
