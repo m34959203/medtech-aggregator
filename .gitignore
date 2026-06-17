@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Node / Next
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# DB / data
+*.sqlite
+*.db
+pgdata/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Uploads runtime
+backend/uploads/
