@@ -21,11 +21,12 @@ interface Props {
   serviceId: number;
   initial: ServiceComparison;
   cities: string[];
+  initialCity?: string;
 }
 
-export default function ComparisonView({ serviceId, initial, cities }: Props) {
+export default function ComparisonView({ serviceId, initial, cities, initialCity = "" }: Props) {
   const [data, setData] = useState<ServiceComparison>(initial);
-  const [city, setCity] = useState("");
+  const [city, setCity] = useState(initialCity);
   const [sort, setSort] = useState<SortOrder>("price_asc");
 
   // Верхняя граница слайдера фиксируется по исходным данным.

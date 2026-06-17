@@ -7,16 +7,19 @@ export const dynamic = "force-dynamic";
 
 export default async function ServicePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ city?: string }>;
 }) {
   const { id } = await params;
+  const { city = "" } = await searchParams;
   const serviceId = Number(id);
   if (!Number.isFinite(serviceId)) notFound();
 
   let initial;
   try {
-    initial = await compare(serviceId, { sort: "price_asc" });
+    initial = await compare(serviceId, { city: city || undefined, sort: "price_asc" });
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) notFound();
     throw e;
@@ -42,7 +45,12 @@ export default async function ServicePage({
         Назад к поиску
       </Link>
 
-      <ComparisonView serviceId={serviceId} initial={initial} cities={cities} />
+      <ComparisonView
+        serviceId={serviceId}
+        initial={initial}
+        cities={cities}
+        initialCity={city}
+      />
     </div>
   );
 }

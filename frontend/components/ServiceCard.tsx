@@ -6,18 +6,25 @@ import type { ServiceComparison } from "@/lib/types";
 export default function ServiceCard({
   service,
   index = 0,
+  city = "",
 }: {
   service: ServiceComparison;
   index?: number;
+  city?: string;
 }) {
   const spread =
     service.max_price > service.min_price
       ? Math.round(((service.max_price - service.min_price) / service.max_price) * 100)
       : 0;
 
+  // Переносим выбранный город на страницу услуги, чтобы фильтр не слетал.
+  const href = city
+    ? `/service/${service.service_id}?city=${encodeURIComponent(city)}`
+    : `/service/${service.service_id}`;
+
   return (
     <Link
-      href={`/service/${service.service_id}`}
+      href={href}
       className="card-interactive group flex animate-fade-up flex-col gap-4 p-5"
       style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
     >
