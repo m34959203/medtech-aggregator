@@ -1,31 +1,31 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useRef } from "react";
 import { formatPrice } from "@/lib/format";
 import type { PriceOffer } from "@/lib/types";
 
-// Маркер для самой дешёвой клиники (брендовый цвет) и для остальных.
-function pinIcon(color: string, ring: string) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="34" height="44" viewBox="0 0 34 44">
-      <path d="M17 0C7.6 0 0 7.6 0 17c0 12 17 27 17 27s17-15 17-27C34 7.6 26.4 0 17 0z" fill="${color}"/>
-      <circle cx="17" cy="17" r="7" fill="#ffffff"/>
-      <circle cx="17" cy="17" r="4" fill="${ring}"/>
-    </svg>`;
-  return L.divIcon({
-    html: svg,
-    className: "",
-    iconSize: [34, 44],
-    iconAnchor: [17, 44],
-    popupAnchor: [0, -40],
-  });
-}
+// Ключ вшивается в бандл на build (NEXT_PUBLIC_*). Без ключа карта не грузится —
+// показываем понятный плейсхолдер вместо битого виджета.
+const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY || "";
 
-const cheapIcon = pinIcon("#059473", "#022c25");
-const normalIcon = pinIcon("#94a3b8", "#334155");
+// Скрипт Яндекс.Карт грузим один раз на всё приложение.
+let ymapsPromise: Promise<unknown> | null = null;
+function loadYmaps(): Promise<any> {
+  if (typeof window === "undefined") return Promise.reject(new Error("no window"));
+  const w = window as unknown as { ymaps?: any };
+  if (w.ymaps?.Map) return Promise.resolve(w.ymaps);
+  if (!ymapsPromise) {
+    ymapsPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = `https://api-maps.yandex.ru/2.1/?apikey=${API_KEY}&lang=ru_RU`;
+      s.async = true;
+      s.onload = () => w.ymaps.ready(() => resolve(w.ymaps));
+      s.onerror = () => reject(new Error("yandex maps failed to load"));
+      document.head.appendChild(s);
+    });
+  }
+  return ymapsPromise as Promise<any>;
+}
 
 interface Props {
   offers: PriceOffer[];
@@ -33,15 +33,83 @@ interface Props {
 }
 
 export default function ClinicMap({ offers, cheapestClinicId }: Props) {
-  const points = useMemo(
-    () =>
-      offers.filter(
-        (o): o is PriceOffer & { lat: number; lng: number } =>
-          o.lat != null && o.lng != null,
-      ),
-    [offers],
+  const containerRef = useRef<HTMLDivElement>(null);
+  const points = offers.filter(
+    (o): o is PriceOffer & { lat: number; lng: number } =>
+      o.lat != null && o.lng != null,
   );
 
+  useEffect(() => {
+    if (!API_KEY || points.length === 0) return;
+    let map: any;
+    let cancelled = false;
+
+    loadYmaps()
+      .then((ymaps) => {
+        if (cancelled || !containerRef.current) return;
+        map = new ymaps.Map(
+          containerRef.current,
+          {
+            center: [points[0].lat, points[0].lng],
+            zoom: 12,
+            controls: ["zoomControl", "geolocationControl"],
+          },
+          { suppressMapOpenBlock: true },
+        );
+
+        const coords: number[][] = [];
+        for (const p of points) {
+          const isCheapest = p.clinic_id === cheapestClinicId;
+          const body = [
+            `<b style="color:#0f766e">${formatPrice(p.price, p.currency)}</b>`,
+            isCheapest ? " · 🏆 Лучшая цена" : "",
+            `<br><span style="color:#64748b">${p.address || p.district || ""}</span>`,
+            p.phone ? `<br><a href="tel:${p.phone.replace(/[^\d+]/g, "")}">${p.phone}</a>` : "",
+          ].join("");
+          const placemark = new ymaps.Placemark(
+            [p.lat, p.lng],
+            {
+              balloonContentHeader: p.clinic_name,
+              balloonContentBody: body,
+              iconCaption: formatPrice(p.price, p.currency),
+            },
+            {
+              preset: isCheapest
+                ? "islands#greenStretchyIcon"
+                : "islands#grayStretchyIcon",
+              iconColor: isCheapest ? "#059473" : "#64748b",
+            },
+          );
+          map.geoObjects.add(placemark);
+          coords.push([p.lat, p.lng]);
+        }
+
+        if (coords.length > 1) {
+          map.setBounds(map.geoObjects.getBounds(), {
+            checkZoomRange: true,
+            zoomMargin: 40,
+          });
+        } else {
+          map.setCenter(coords[0], 14);
+        }
+      })
+      .catch(() => {
+        /* сеть/ключ недоступны — плейсхолдер ниже остаётся */
+      });
+
+    return () => {
+      cancelled = true;
+      if (map) map.destroy();
+    };
+  }, [offers, cheapestClinicId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!API_KEY) {
+    return (
+      <div className="flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-ink-200 bg-ink-50 px-6 text-center text-sm text-ink-400">
+        Карта временно недоступна (не задан ключ Яндекс.Карт)
+      </div>
+    );
+  }
   if (points.length === 0) {
     return (
       <div className="flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-ink-200 bg-ink-50 text-sm text-ink-400">
@@ -50,63 +118,5 @@ export default function ClinicMap({ offers, cheapestClinicId }: Props) {
     );
   }
 
-  const center: [number, number] = [
-    points.reduce((s, p) => s + p.lat, 0) / points.length,
-    points.reduce((s, p) => s + p.lng, 0) / points.length,
-  ];
-
-  return (
-    <MapContainer
-      center={center}
-      zoom={12}
-      scrollWheelZoom={false}
-      className="h-full min-h-[320px] w-full"
-      style={{ minHeight: 320 }}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <FitBounds points={points.map((p) => [p.lat, p.lng] as [number, number])} />
-      {points.map((p, i) => {
-        const isCheapest = p.clinic_id === cheapestClinicId;
-        return (
-          <Marker
-            key={`${p.clinic_id}-${i}`}
-            position={[p.lat, p.lng]}
-            icon={isCheapest ? cheapIcon : normalIcon}
-          >
-            <Popup>
-              <div className="space-y-1">
-                <p className="font-semibold text-ink-900">{p.clinic_name}</p>
-                <p className="text-xs text-ink-500">{p.district}</p>
-                <p className="text-base font-bold text-brand-700">
-                  {formatPrice(p.price, p.currency)}
-                </p>
-                {isCheapest && (
-                  <p className="text-xs font-medium text-brand-600">
-                    🏆 Лучшая цена
-                  </p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        );
-      })}
-    </MapContainer>
-  );
-}
-
-/** Подгоняет вьюпорт под все маркеры. */
-function FitBounds({ points }: { points: [number, number][] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 13);
-      return;
-    }
-    map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 14 });
-  }, [map, points]);
-  return null;
+  return <div ref={containerRef} className="h-full min-h-[320px] w-full rounded-xl" />;
 }

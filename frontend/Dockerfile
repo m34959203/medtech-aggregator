@@ -11,6 +11,9 @@ COPY . .
 # Публичный origin вшивается в клиентский бандл на build (NEXT_PUBLIC_*).
 ARG NEXT_PUBLIC_API_URL=https://medtech.technokod.kz
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Ключ Яндекс.Карт (NEXT_PUBLIC_* вшивается в клиентский бандл на build).
+ARG NEXT_PUBLIC_YANDEX_MAPS_API_KEY=
+ENV NEXT_PUBLIC_YANDEX_MAPS_API_KEY=$NEXT_PUBLIC_YANDEX_MAPS_API_KEY
 ENV INTERNAL_API_URL=http://medtech-backend:8000
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

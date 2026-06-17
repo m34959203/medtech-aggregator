@@ -29,6 +29,7 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: https://medtech.technokod.kz
+        NEXT_PUBLIC_YANDEX_MAPS_API_KEY: ${YANDEX_MAPS_API_KEY:-}
     container_name: medtech-frontend
     restart: unless-stopped
     environment:
