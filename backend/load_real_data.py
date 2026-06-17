@@ -13,7 +13,12 @@ from __future__ import annotations
 from datetime import date
 
 from app.db import SessionLocal, init_db
-from app.ingestion.web_scraper import scrape_lab_platform, scrape_url
+from app.ingestion.web_scraper import (
+    fetch_103kz_card,
+    fetch_contact,
+    scrape_lab_platform,
+    scrape_url,
+)
 from app.models import Clinic, Price, ServiceCatalog
 
 # ДЕТЕРМИНИРОВАННАЯ карта «ключ в сыром названии → эталон». Курация уже знает
@@ -22,7 +27,7 @@ from app.models import Clinic, Price, ServiceCatalog
 # ЭКГ/Электрокардиограмму на два каноне и т.п.). Порядок ВАЖЕН — первый матч
 # выигрывает; require — обязательная доп-подстрока, exclude — стоп-слова.
 # (keyword, canonical, category, require, excludes)
-_AN, _P, _UZ, _PR = "Анализы", "Приём врача", "УЗИ", "Процедуры"
+_AN, _P, _UZ, _PR, _MR = "Анализы", "Приём врача", "УЗИ", "Процедуры", "МРТ/КТ"
 # Приём = только консультация (а не процедура/операция «у гинеколога»).
 _CONSULT = ("прием", "приём", "консультац", "осмотр")
 _UZI = ("узи", "ультразвук")
@@ -33,6 +38,11 @@ _PANEL = ("комплекс", "профил", "пакет", "скрининг", 
 _PROC = ("операц", "удаление", "биопси", "пункци", "инъекц", "блокад", "массаж",
          "prp", "плазмолифт", "склеротерап", "вмешательств", "манипул", "забор",
          "мазок", "лечение", "выскаблив", "прижигани", "коагул", "эксцизи")
+# Сравниваем сопоставимое: только ПЕРВИЧНЫЙ взрослый приём (не повторный/онлайн/
+# детский), иначе «Лучшая цена» врёт (повторный/онлайн дешевле первичного).
+_NONPRIM = ("повторн", "онлайн", "детск", "дистанц", "телемед", "на дому",
+            "вызов", "выезд", "видеоконсульт")
+_PRIEM_EX = _PROC + _NONPRIM
 SPECS: list[tuple[str, str, str, tuple[str, ...], tuple[str, ...]]] = [
     # — Сердце: ЭхоКГ раньше ЭКГ, чтобы «УЗИ сердца с ЭКГ» не ушло в ЭКГ —
     ("эхокардиограф", "ЭхоКГ (эхокардиография)", _PR, (), ()),
@@ -47,19 +57,25 @@ SPECS: list[tuple[str, str, str, tuple[str, ...], tuple[str, ...]]] = [
     ("малого таза", "УЗИ органов малого таза", _UZ, _UZI, ()),
     ("молочных желез", "УЗИ молочных желёз", _UZ, _UZI, ()),
     # — Приёмы: только консультация (require), без процедур (exclude) —
-    ("кардиолог", "Приём кардиолога", _P, _CONSULT, _PROC),
-    ("гинеколог", "Приём гинеколога", _P, _CONSULT, _PROC),
-    ("невропатолог", "Приём невролога", _P, _CONSULT, _PROC),
-    ("невролог", "Приём невролога", _P, _CONSULT, _PROC),
-    ("офтальмолог", "Приём офтальмолога", _P, _CONSULT, _PROC),
-    ("окулист", "Приём офтальмолога", _P, _CONSULT, _PROC),
-    ("эндокринолог", "Приём эндокринолога", _P, _CONSULT, _PROC),
-    ("дерматолог", "Приём дерматолога", _P, _CONSULT, _PROC),
-    ("уролог", "Приём уролога", _P, _CONSULT, _PROC),
-    ("оторинолар", "Приём ЛОР-врача", _P, _CONSULT, _PROC),
-    ("лор-врач", "Приём ЛОР-врача", _P, _CONSULT, _PROC),
+    ("кардиолог", "Приём кардиолога", _P, _CONSULT, _PRIEM_EX),
+    ("гинеколог", "Приём гинеколога", _P, _CONSULT, _PRIEM_EX),
+    ("невропатолог", "Приём невролога", _P, _CONSULT, _PRIEM_EX),
+    ("невролог", "Приём невролога", _P, _CONSULT, _PRIEM_EX),
+    ("офтальмолог", "Приём офтальмолога", _P, _CONSULT, _PRIEM_EX),
+    ("окулист", "Приём офтальмолога", _P, _CONSULT, _PRIEM_EX),
+    ("эндокринолог", "Приём эндокринолога", _P, _CONSULT, _PRIEM_EX),
+    ("дерматолог", "Приём дерматолога", _P, _CONSULT, _PRIEM_EX),
+    ("уролог", "Приём уролога", _P, _CONSULT, _PRIEM_EX),
+    ("оторинолар", "Приём ЛОР-врача", _P, _CONSULT, _PRIEM_EX),
+    ("лор-врач", "Приём ЛОР-врача", _P, _CONSULT, _PRIEM_EX),
     ("терапевт", "Приём терапевта", _P, _CONSULT,
-     _PROC + ("физиотерап", "психотерап", "стоматолог", "мануальн", "озонотерап")),
+     _PRIEM_EX + ("физиотерап", "психотерап", "стоматолог", "мануальн", "озонотерап")),
+    # — МРТ/КТ (диагностические центры) —
+    ("мрт головного мозга", "МРТ головного мозга", _MR, (), ("сосуд", "контраст", "гипофиз", "+")),
+    ("магнитно-резонансная томография головного мозга", "МРТ головного мозга", _MR, (),
+     ("сосуд", "контраст", "гипофиз", "+")),
+    ("кт головного мозга", "КТ головного мозга", _MR, (), ("контраст", "сосуд", "+")),
+    ("компьютерная томография головного мозга", "КТ головного мозга", _MR, (), ("контраст", "сосуд", "+")),
     # — Анализы: один аналит, не панель (_PANEL в excludes) —
     ("клинический анализ крови", "Общий анализ крови", _AN, (), ()),
     ("общий анализ крови", "Общий анализ крови", _AN, (), ()),
@@ -321,6 +337,12 @@ def main(reset: bool = True):
             except Exception as e:
                 print(f"  ✗ {name}: скрапинг не удался — {type(e).__name__}: {str(e)[:80]}")
                 continue
+            # реальные адрес/телефон/координаты с 103.kz (вместо «сеть клиник» и джиттера)
+            card = fetch_103kz_card(url)
+            if card and card.get("lat") and card.get("lng"):
+                address = card["address"] or address
+                phone = card["phone"] or phone
+                lat, lng, district = card["lat"], card["lng"], ""
             load(name, city, lat, lng, items, district, address, phone)
 
         # Лаборатории INVIVO/SAPA через сессионный AJAX
@@ -335,7 +357,15 @@ def main(reset: bool = True):
             lat = round(base_lat + 0.03 - (plat_idx % 3) * 0.02, 5)
             lng = round(base_lng + 0.03 - (plat_idx // 3) * 0.02, 5)
             plat_idx += 1
-            load(name, city, lat, lng, items, address="сеть лабораторий")
+            # реальные контакты с сайта сети (INVIVO даёт адрес+geo, SAPA — телефон)
+            address, phone = "сеть лабораторий", ""
+            contact = fetch_contact(f"{base}/ru/{city_slug}/")
+            if contact:
+                phone = contact.get("phone") or ""
+                address = contact.get("address") or address
+                if contact.get("lat") and contact.get("lng"):
+                    lat, lng = contact["lat"], contact["lng"]
+            load(name, city, lat, lng, items, address=address, phone=phone)
 
         n_cat = db.query(ServiceCatalog).count()
         n_price = db.query(Price).count()

@@ -152,6 +152,73 @@ def _dedup(items: list[RawItem]) -> list[RawItem]:
     return out
 
 
+def fetch_103kz_card(url: str, timeout: float = 20.0) -> dict | None:
+    """Реальные контакты клиники с 103.kz: адрес, телефон, координаты.
+    На главной субдомена есть JSON-LD LocalBusiness с geo — это настоящий филиал
+    (Organization-блок без geo — шаблонный головной офис, игнорируем)."""
+    import json
+
+    host = (urlparse(url).hostname or "")
+    if not host.endswith(".103.kz"):
+        return None
+    try:
+        with httpx.Client(headers={"User-Agent": UA}, timeout=timeout,
+                          follow_redirects=True, verify=False) as c:
+            html = c.get(f"https://{host}/").text
+    except Exception:
+        return None
+    for block in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', html, re.S):
+        try:
+            data = json.loads(block.strip())
+        except Exception:
+            continue
+        for obj in (data if isinstance(data, list) else [data]):
+            if isinstance(obj, dict) and obj.get("geo"):
+                addr = obj.get("address") or {}
+                geo = obj["geo"]
+                tel = (obj.get("telephone") or "").split(",")[0].strip()
+                tel = re.sub(r"\s+", " ", tel)
+                return {
+                    "address": addr.get("streetAddress") if isinstance(addr, dict) else None,
+                    "phone": tel or "",
+                    "lat": geo.get("latitude"),
+                    "lng": geo.get("longitude"),
+                }
+    return None
+
+
+def fetch_contact(url: str, timeout: float = 20.0) -> dict | None:
+    """Контакты со страницы: адрес/координаты/телефон из JSON-LD (с geo), иначе
+    хотя бы телефон из `tel:`-ссылки. Для лаб-сетей (INVIVO/SAPA/Gemotest/INVITRO)."""
+    import json
+
+    try:
+        with httpx.Client(headers={"User-Agent": UA}, timeout=timeout,
+                          follow_redirects=True, verify=False) as c:
+            html = c.get(url).text
+    except Exception:
+        return None
+    out = {"address": None, "phone": "", "lat": None, "lng": None}
+    for block in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', html, re.S):
+        try:
+            data = json.loads(block.strip())
+        except Exception:
+            continue
+        for obj in (data if isinstance(data, list) else [data]):
+            if isinstance(obj, dict) and obj.get("geo"):
+                addr = obj.get("address") or {}
+                geo = obj["geo"]
+                out["address"] = addr.get("streetAddress") if isinstance(addr, dict) else None
+                out["phone"] = re.sub(r"\s+", " ", (obj.get("telephone") or "").split(",")[0].strip())
+                out["lat"], out["lng"] = float(geo["latitude"]), float(geo["longitude"])
+                return out
+    m = re.search(r'tel:([+\d][\d\s()+-]{7,})', html)
+    if m:
+        out["phone"] = re.sub(r"\s+", " ", m.group(1).strip())
+        return out
+    return None
+
+
 def scrape_lab_platform(base_url: str, city: str, timeout: float = 45.0) -> list[RawItem]:
     """Лаборатории INVIVO и SAPA на общей Django-платформе: каталог анализов
     отдаётся не в статике, а сессионным AJAX. Берём cookies со страницы, затем
