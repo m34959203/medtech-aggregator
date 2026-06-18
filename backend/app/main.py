@@ -6,7 +6,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .db import init_db
 from .routers import (
     aggregator, basket, chat, clinics, export, feedback, ingestion, leads, portal, review,
 )
@@ -25,9 +24,8 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def _startup():
-    init_db()
+# Схема создаётся миграциями (entrypoint → python -m app.migrate), а не на старте
+# приложения — единый источник правды для схемы.
 
 
 @app.get("/health")

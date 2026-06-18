@@ -73,6 +73,7 @@ medtech-platform/
 cd backend
 pip install -r requirements.txt          # или python -m venv .venv && ...
 cp .env.example .env                      # по умолчанию SQLite — запускается сразу
+python -m app.migrate                     # схема через Alembic-миграции (идемпотентно)
 python -m app.seed                        # демо: 6 клиник, справочник, 33 цены
 python make_samples.py                    # сгенерировать демо-прайсы в sample_data/
 uvicorn app.main:app --reload             # API на http://localhost:8000

@@ -153,3 +153,12 @@ Self-service портал — мостик «автосбор → партнёр
 - 6 тестов `test_ontology.py` (база, наследование вариантами, ЭхоКГ≠ЭКГ, осмс-флаги, unknown→None, группы).
 **Спринт-3 практически закрыт.** Остался только чистый pgvector-семантик — он требует Postgres + эмбеддинг-провайдера (инфра-решение, не код); онтология здесь — структурный фундамент под него. ОСМС/ДМС: покрытие ОСМС сделано (курируемое); ДМС упирается в данные конкретных страховых.
 Мерж в main только после сдачи 26–28.06.
+
+## Чек-поинт 2026-06-18 (#9) — ГОДНЫЙ ПРОДУКТ: миграции + Postgres-готовность (ветка feat/product-evolution)
+Директива Дмитрия «делай годный продукт, не смотри на хакатон» → убираю инженерный долг (ручные ALTER, схема через create_all).
+- **Alembic**: `alembic.ini` + `alembic/env.py` (URL из settings, render_as_batch для SQLite, compare_type) + начальная миграция `3a507c7fa04a` (autogenerate, все 9 таблиц + индексы вкл. access_token).
+- **`app/migrate.py`**: устойчивое применение — свежая БД→upgrade head; уже-под-alembic→upgrade; ЛЕГАСИ (create_all без версии)→create_all недостающих таблиц + ALTER clinics.access_token + stamp head. Проверено на SQLite и Postgres (temp-контейнер на 5546).
+- **entrypoint.sh**: `python -m app.migrate` вместо create_all; **main.py**: убран стартовый `init_db()` (схемой владеют миграции — единый источник правды; ушёл и deprecated on_event-warning).
+- requirements: `alembic==1.14.0`. seed/load_real_data сами зовут init_db (dev-инструменты, ок).
+- 2 теста `test_migrate.py` (свежая/легаси через subprocess) → 71 pytest.
+**Дальше для продукта**: переключить прод-рантайм на Postgres (миграция данных SQLite→PG), pgvector-семантика поверх (теперь инфра готова), auth на admin/portal/review. Прод (main) пока НЕ деплоил — большое изменение, деплой/мерж под контролем.
