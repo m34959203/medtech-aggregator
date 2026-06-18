@@ -175,3 +175,21 @@ def test_classify_analyte_excludes_panels_and_false_matches():
 def test_classify_echo_before_ecg():
     assert _classify("УЗИ сердца с ЭКГ")[0] == "ЭхоКГ (эхокардиография)"
     assert _classify("ЭКГ с расшифровкой")[0] == "ЭКГ"
+
+
+def test_appointment_modifier_not_merged_into_primary(db):
+    """Повторный/онлайн/детский приём не должен сливаться с первичным «Приём X»."""
+    n = Normalizer(db)
+    primary = n.normalize("Первичный приём терапевта")
+    assert primary.service.canonical_name == "Приём терапевта"
+
+    repeat = n.normalize("Повторный приём терапевта")
+    assert repeat.service.canonical_name == "Повторный приём терапевта"
+    assert repeat.service.id != primary.service.id
+
+    online = n.normalize("Онлайн-консультация терапевта")
+    assert online.service.canonical_name == "Онлайн-консультация терапевта"
+    assert online.service.id != primary.service.id
+
+    ped = n.normalize("Приём детского терапевта")
+    assert ped.service.id not in (primary.service.id, repeat.service.id)

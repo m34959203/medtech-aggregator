@@ -38,6 +38,38 @@ def _clean(s: str) -> str:
     return s
 
 
+# Модификаторы приёма врача, меняющие сам продукт: повторный / онлайн / детский
+# приём — это НЕ первичный приём, и сравнивать их под одной услугой нельзя (иначе
+# «🏆 Лучшая цена» врёт). token_set_ratio даёт 100%, т.к. «приём гинеколога» —
+# подмножество «вторичный приём гинеколога», поэтому фильтруем явно по словам.
+_APPT_MODIFIERS = (
+    (re.compile(r"повторн|вторичн|контрольн|динамическ", re.I), "repeat"),
+    (re.compile(r"онлайн|дистанцион|телемед|\bonline\b", re.I), "online"),
+    (re.compile(r"детск|ребёнк|ребенк|\bдетей\b|педиатр", re.I), "pediatric"),
+)
+
+
+def _appt_modifier(text: str) -> str | None:
+    """Возвращает тип не-первичного приёма (repeat/online/pediatric) или None."""
+    for rx, label in _APPT_MODIFIERS:
+        if rx.search(text or ""):
+            return label
+    return None
+
+
+def _derive_appt_name(primary_canonical: str, modifier: str) -> str:
+    """«Приём гинеколога» + repeat → «Повторный приём гинеколога» и т.п."""
+    spec = re.sub(r"^при[её]м\s+", "", primary_canonical.strip(), flags=re.I)
+    spec = re.sub(r"^консультация\s+", "", spec, flags=re.I).strip()
+    if modifier == "repeat":
+        return f"Повторный приём {spec}"
+    if modifier == "online":
+        return f"Онлайн-консультация {spec}"
+    if modifier == "pediatric":
+        return f"Приём детского {spec}"
+    return primary_canonical
+
+
 class Normalizer:
     def __init__(self, db: Session):
         self.db = db
@@ -100,8 +132,24 @@ class Normalizer:
             svc.synonyms = syns
             self.index[key] = svc
 
+    def _reroute_appointment(self, raw_name: str, svc: ServiceCatalog, conf: float) -> MatchResult | None:
+        """Не сливать повторный/онлайн/детский приём с первичным — отдельная услуга."""
+        if not svc or svc.category != "Приём врача":
+            return None
+        mod = _appt_modifier(raw_name)
+        if not mod or _appt_modifier(svc.canonical_name):
+            return None  # модификатора нет, либо целевая услуга сама не-первичная
+        derived = _derive_appt_name(svc.canonical_name, mod)
+        return self._find_or_create(derived, svc.category, raw_name, conf, is_new=False)
+
     def normalize(self, raw_name: str) -> MatchResult:
         svc, conf = self._fuzzy(raw_name)
+
+        # 0. гард: повторный/онлайн/детский приём ≠ первичный — отводим в свою услугу
+        if svc and conf >= self.threshold:
+            rerouted = self._reroute_appointment(raw_name, svc, conf)
+            if rerouted:
+                return rerouted
 
         # 1. уверенный fuzzy — принимаем без LLM
         if svc and conf >= self.threshold:
@@ -139,6 +187,17 @@ class Normalizer:
         """
         svc, conf = self._fuzzy(raw_name)
         candidates = [c.canonical_name for c in self._top_candidates(raw_name, k=5)]
+
+        # 0. гард: повторный/онлайн/детский приём отводится в отдельную услугу
+        if svc and conf >= self.threshold and svc.category == "Приём врача":
+            mod = _appt_modifier(raw_name)
+            if mod and not _appt_modifier(svc.canonical_name):
+                derived = _derive_appt_name(svc.canonical_name, mod)
+                return {
+                    "raw": raw_name, "canonical": derived, "category": svc.category,
+                    "confidence": round(conf, 3), "method": "fuzzy", "is_new": _clean(derived) not in self.index,
+                    "candidates": candidates,
+                }
 
         # 1. уверенный fuzzy — без сети
         if svc and conf >= self.threshold:
