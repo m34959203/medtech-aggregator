@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth import require_admin
 from ..db import get_db
 from ..models import Clinic, Price, Source
 from ..schemas import ClinicOut, PriceOut
@@ -30,7 +31,7 @@ def list_clinics(city: str | None = None, db: Session = Depends(get_db)):
     return q.order_by(Clinic.name).all()
 
 
-@router.post("", response_model=ClinicOut)
+@router.post("", response_model=ClinicOut, dependencies=[Depends(require_admin)])
 def create_clinic(payload: ClinicIn, db: Session = Depends(get_db)):
     clinic = Clinic(**payload.model_dump())
     db.add(clinic)

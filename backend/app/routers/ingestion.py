@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
+from ..auth import require_admin
 from ..models import Clinic, IngestionRun, Price, PriceReport, ServiceCatalog, Source
 from ..schemas import IngestionResult, IngestionRunOut
 from ..ingestion import api_connector, web_scraper
@@ -30,7 +31,7 @@ def _require_clinic(db: Session, clinic_id: int) -> Clinic:
     return clinic
 
 
-@router.post("/upload", response_model=IngestionResult)
+@router.post("/upload", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 async def upload_pricelist(
     clinic_id: int = Form(...),
     file: UploadFile = File(...),
@@ -58,7 +59,7 @@ def _resolve_clinic_id(db: Session, filename: str, default: int | None) -> int |
     return default if (default and db.get(Clinic, default)) else None
 
 
-@router.post("/upload-batch")
+@router.post("/upload-batch", dependencies=[Depends(require_admin)])
 async def upload_batch(
     clinic_id: int | None = Form(None),
     files: list[UploadFile] = File(...),
@@ -133,7 +134,7 @@ async def upload_batch(
     }
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(require_admin)])
 def ingest_stats(db: Session = Depends(get_db)):
     """Сводка для админ-дашборда: объём каталога и качество приёма."""
     threshold = settings.match_confidence_threshold
@@ -166,7 +167,7 @@ class ScrapeIn(BaseModel):
     dynamic: bool = False
 
 
-@router.post("/scrape", response_model=IngestionResult)
+@router.post("/scrape", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 def scrape_site(payload: ScrapeIn, db: Session = Depends(get_db)):
     """② Pull: снять прайс с сайта клиники."""
     _require_clinic(db, payload.clinic_id)
@@ -188,7 +189,7 @@ class ScrapeHtmlIn(BaseModel):
     html: str
 
 
-@router.post("/scrape-html", response_model=IngestionResult)
+@router.post("/scrape-html", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 def scrape_html(payload: ScrapeHtmlIn, db: Session = Depends(get_db)):
     """② Pull (демо без сети): распарсить переданный HTML прайса."""
     _require_clinic(db, payload.clinic_id)
@@ -206,7 +207,7 @@ class ApiIn(BaseModel):
     endpoint: str
 
 
-@router.post("/api", response_model=IngestionResult)
+@router.post("/api", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 def ingest_from_api(payload: ApiIn, db: Session = Depends(get_db)):
     """② Pull: тянем прайс из REST/JSON API клиники или агрегатора."""
     _require_clinic(db, payload.clinic_id)
@@ -255,7 +256,7 @@ def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
     return {"results": [norm.preview(n) for n in names]}
 
 
-@router.post("/run-scheduled")
+@router.post("/run-scheduled", dependencies=[Depends(require_admin)])
 def run_scheduled():
     """Запустить автосбор по всем включённым pull-источникам (web_scrape/api)."""
     from ..scheduler import run_all_sources
@@ -263,6 +264,6 @@ def run_scheduled():
     return {"report": run_all_sources()}
 
 
-@router.get("/runs", response_model=list[IngestionRunOut])
+@router.get("/runs", response_model=list[IngestionRunOut], dependencies=[Depends(require_admin)])
 def list_runs(limit: int = 50, db: Session = Depends(get_db)):
     return db.query(IngestionRun).order_by(IngestionRun.created_at.desc()).limit(limit).all()

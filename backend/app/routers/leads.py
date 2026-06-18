@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..auth import require_admin
 from ..models import Lead
 
 router = APIRouter(prefix="/api/leads", tags=["leads"])
@@ -59,7 +60,7 @@ def create_lead(payload: LeadIn, db: Session = Depends(get_db)):
     return lead
 
 
-@router.get("", response_model=list[LeadOut])
+@router.get("", response_model=list[LeadOut], dependencies=[Depends(require_admin)])
 def list_leads(status: str | None = None, limit: int = 100, db: Session = Depends(get_db)):
     q = db.query(Lead)
     if status:

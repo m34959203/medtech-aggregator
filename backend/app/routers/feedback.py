@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from ..db import get_db
+from ..auth import require_admin
 from ..models import PriceReport
 from sqlalchemy.orm import Session
 
@@ -51,7 +52,7 @@ def report_price(payload: PriceReportIn, db: Session = Depends(get_db)):
     return report
 
 
-@router.get("/price-reports", response_model=list[PriceReportOut])
+@router.get("/price-reports", response_model=list[PriceReportOut], dependencies=[Depends(require_admin)])
 def list_reports(status: str | None = None, limit: int = 100, db: Session = Depends(get_db)):
     q = db.query(PriceReport)
     if status:

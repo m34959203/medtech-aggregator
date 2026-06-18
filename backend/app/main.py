@@ -6,8 +6,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi import Depends
+
+from .auth import require_admin
 from .routers import (
-    aggregator, basket, chat, clinics, export, feedback, ingestion, leads, portal, review,
+    aggregator, auth, basket, chat, clinics, export, feedback, ingestion, leads, portal, review,
 )
 
 app = FastAPI(
@@ -37,9 +40,10 @@ app.include_router(clinics.router)
 app.include_router(ingestion.router)
 app.include_router(aggregator.router)
 app.include_router(chat.router)
-app.include_router(export.router)
+app.include_router(export.router, dependencies=[Depends(require_admin)])
 app.include_router(feedback.router)
 app.include_router(leads.router)
-app.include_router(review.router)
+app.include_router(review.router, dependencies=[Depends(require_admin)])
 app.include_router(portal.router)
 app.include_router(basket.router)
+app.include_router(auth.router)

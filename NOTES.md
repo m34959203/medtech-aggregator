@@ -162,3 +162,12 @@ Self-service портал — мостик «автосбор → партнёр
 - requirements: `alembic==1.14.0`. seed/load_real_data сами зовут init_db (dev-инструменты, ок).
 - 2 теста `test_migrate.py` (свежая/легаси через subprocess) → 71 pytest.
 **Дальше для продукта**: переключить прод-рантайм на Postgres (миграция данных SQLite→PG), pgvector-семантика поверх (теперь инфра готова), auth на admin/portal/review. Прод (main) пока НЕ деплоил — большое изменение, деплой/мерж под контролем.
+
+## Чек-поинт 2026-06-18 (#10) — БЕЗОПАСНОСТЬ: авторизация админ-зоны (ветка feat/product-evolution)
+Закрыты открытые admin/review/export/ingest-write/portal-issue эндпоинты. 76 pytest, tsc+next build чисты. Прод на main не тронут.
+- **Passwordless токен** (по правилу «без ввода паролей»): `app/auth.py` (`require_admin`, cookie `mt_admin` httpOnly/samesite-lax/secure-по-настройке, либо `Authorization: Bearer`), `routers/auth.py` (login/logout/me). `ADMIN_TOKEN` пусто → fail-closed (503), не открыто. `COOKIE_SECURE` для HTTPS.
+- **Защита**: review/export — на уровне include_router; ingest (кроме preview)/portal-issue/feedback-list/leads-list/clinics-POST — поштучно `dependencies=[Depends(require_admin)]`. Публичные: поиск/сравнение/онтология/история/чат/корзина/preview/жалоба-POST/лид-POST/портал-по-токену.
+- **Фронт**: `components/AdminGate.tsx` (проверка `me`, magic-link `?key=` с зачисткой URL, ввод ключа, «Выйти»); `app/admin/layout.tsx` оборачивает /admin и /admin/review (контент монтируется только после авторизации).
+- **Тесты**: conftest — автообход admin для прежних тестов + маркер `real_admin`; `test_auth.py` (5: 401 без токена, публичные открыты, Bearer/cookie-логин, неверный токен, logout). 76 pytest.
+- `.env.example`: `ADMIN_TOKEN` (ген `secrets.token_urlsafe(32)`) + `COOKIE_SECURE`. API.md/CHANGELOG обновлены.
+**Дальше**: Postgres как прод-рантайм (миграция данных), pgvector-семантика, rate-limit на публичные POST (жалоба/лид/чат). Прод/мерж — под контролем Дмитрия.

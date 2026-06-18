@@ -2,6 +2,17 @@
 
 Base URL: `http://localhost:8000`. Интерактивная документация: `/docs` (Swagger), `/redoc`.
 
+## Авторизация (админ-зона)
+
+Админ-роуты защищены passwordless-токеном (`ADMIN_TOKEN`). Токен принимается из
+httpOnly-cookie `mt_admin` или заголовка `Authorization: Bearer <token>`. Если
+`ADMIN_TOKEN` не задан — админ-роуты закрыты (fail-closed), а не открыты.
+
+- `POST /api/auth/login` `{token}` → ставит cookie (вход). `GET /api/auth/me` → статус. `POST /api/auth/logout`.
+- **Только админ:** `/api/ingest/*` (кроме `preview`), `/api/export/*`, `/api/review/*`, `/api/ingest/stats`, `/api/portal/issue/*`, `POST /api/clinics`, `GET /api/feedback/price-reports`, `GET /api/leads`.
+- **Публичные:** поиск/сравнение/категории/города/услуги/онтология/история, чат, корзина-рецепт, `ingest/preview`, `POST` жалобы и лида, портал по токену клиники (`/api/portal/{token}/*`).
+- Вход в UI: `/admin?key=<ADMIN_TOKEN>` (magic-link) либо ввод ключа в форме.
+
 ## Приём данных (Кейс 1)
 
 ### `POST /api/ingest/upload` — ① загрузка прайса

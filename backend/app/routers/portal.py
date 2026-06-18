@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..auth import require_admin
 from ..ingestion.file_parser import detect_and_parse
 from ..ingestion.service import ingest_items, record_price_history
 from ..models import Clinic, Price, ServiceCatalog
@@ -37,7 +38,7 @@ def ensure_token(db: Session, clinic: Clinic) -> str:
     return clinic.access_token
 
 
-@router.post("/issue/{clinic_id}")
+@router.post("/issue/{clinic_id}", dependencies=[Depends(require_admin)])
 def issue_access(clinic_id: int, db: Session = Depends(get_db)):
     """Админ выдаёт клинике ссылку доступа (генерит токен при первом вызове)."""
     clinic = db.get(Clinic, clinic_id)

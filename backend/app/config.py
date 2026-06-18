@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     match_confidence_threshold: float = 0.78
 
+    # Безопасность админ-зоны (passwordless: доступ по токену через cookie).
+    # Пусто → админ-роуты ЗАКРЫТЫ (fail-closed). Задать ADMIN_TOKEN в .env/проде.
+    admin_token: str = ""
+    cookie_secure: bool = False  # True за HTTPS в проде (cookie только по TLS)
+
     # Чат-помощник. Провайдер OpenAI-совместимый: "alem" (AlemLLM, KZ) или "groq".
     # По умолчанию авто: если задан alem_api_key — alem, иначе groq.
     llm_provider: str = "auto"  # auto / alem / groq

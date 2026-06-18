@@ -181,6 +181,23 @@ export function createLead(lead: {
   });
 }
 
+// --- Безопасность: админ-авторизация (passwordless токен → httpOnly cookie) ---
+export function authMe(signal?: AbortSignal): Promise<{ authenticated: boolean; configured: boolean }> {
+  return apiFetch("/api/auth/me", { signal });
+}
+
+export function authLogin(token: string): Promise<{ ok: boolean }> {
+  return apiFetch("/api/auth/login", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function authLogout(): Promise<unknown> {
+  return apiFetch("/api/auth/logout", { method: "POST" });
+}
+
 // --- Спринт-3: корзина-рецепт ---
 import type { BasketResult, PortalView } from "./types";
 
