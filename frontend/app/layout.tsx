@@ -70,6 +70,12 @@ function SiteHeader() {
           >
             Нормализатор
           </Link>
+          <Link
+            href="/admin"
+            className="font-medium text-ink-600 transition hover:text-brand-700"
+          >
+            Приём данных
+          </Link>
         </nav>
       </div>
     </header>

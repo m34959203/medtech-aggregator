@@ -1,13 +1,19 @@
 """Роуты приёма данных: загрузка файла (① push) и автосбор web/api (② pull)."""
 from __future__ import annotations
 
+import io
+import re
+import zipfile
+
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_db
-from ..models import Clinic, IngestionRun, Source
+from ..models import Clinic, IngestionRun, Price, ServiceCatalog, Source
 from ..schemas import IngestionResult, IngestionRunOut
 from ..ingestion import api_connector, web_scraper
 from ..ingestion.file_parser import detect_and_parse
@@ -40,6 +46,110 @@ async def upload_pricelist(
         db, clinic_id=clinic_id, channel="push", source_type="upload",
         items=items, fmt=fmt,
     )
+
+
+def _resolve_clinic_id(db: Session, filename: str, default: int | None) -> int | None:
+    """Клиника для файла из архива: префикс «<id>_имя.ext», иначе общий clinic_id."""
+    m = re.match(r"^\s*(\d+)[ _\-]", filename)
+    if m:
+        cid = int(m.group(1))
+        if db.get(Clinic, cid):
+            return cid
+    return default if (default and db.get(Clinic, default)) else None
+
+
+@router.post("/upload-batch")
+async def upload_batch(
+    clinic_id: int | None = Form(None),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """① Push (пакетно): архив прайсов клиник-партнёров → один отчёт по всем файлам.
+
+    Принимает несколько файлов и/или .zip. Клиника для каждого файла берётся из
+    префикса имени «<clinic_id>_прайс.xlsx», иначе из общего поля clinic_id.
+    Прямой ответ на формулировку Кейса 1 — «обработка архива прайсов».
+    """
+    # Собираем (filename, bytes), разворачивая zip-архивы.
+    entries: list[tuple[str, bytes]] = []
+    for up in files:
+        raw = await up.read()
+        name = up.filename or "file"
+        if name.lower().endswith(".zip"):
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(raw))
+            except zipfile.BadZipFile:
+                entries.append((name, raw))
+                continue
+            for zi in zf.infolist():
+                base = zi.filename.split("/")[-1]
+                if zi.is_dir() or not base or base.startswith(".") or "__MACOSX" in zi.filename:
+                    continue
+                entries.append((base, zf.read(zi)))
+        else:
+            entries.append((name, raw))
+
+    if not entries:
+        raise HTTPException(422, "Архив пуст — не найдено файлов прайсов.")
+
+    results: list[dict] = []
+    tot_items = tot_matched = tot_review = ok = 0
+    for fname, content in entries[:200]:
+        entry: dict = {"file": fname}
+        cid = _resolve_clinic_id(db, fname, clinic_id)
+        if cid is None:
+            entry.update(status="error", error="Клиника не определена: задайте clinic_id или префикс «<id>_».")
+            results.append(entry)
+            continue
+        try:
+            fmt, items = detect_and_parse(fname, content)
+        except Exception as e:  # noqa: BLE001 — отчёт по файлу, не валим весь архив
+            entry.update(status="error", error=f"Парсинг не удался ({type(e).__name__}).")
+            results.append(entry)
+            continue
+        if not items:
+            entry.update(status="empty", clinic_id=cid, format=fmt, items=0)
+            results.append(entry)
+            continue
+        res = ingest_items(
+            db, clinic_id=cid, channel="push", source_type="upload", items=items, fmt=fmt,
+        )
+        entry.update(
+            status="ok", clinic_id=cid, format=fmt, items=res.items_found,
+            matched=res.matched, needs_review=res.needs_review, run_id=res.run_id,
+        )
+        tot_items += res.items_found
+        tot_matched += res.matched
+        tot_review += res.needs_review
+        ok += 1
+        results.append(entry)
+
+    return {
+        "files": results,
+        "totals": {
+            "files": len(entries), "ok": ok, "items": tot_items,
+            "matched": tot_matched, "needs_review": tot_review,
+        },
+    }
+
+
+@router.get("/stats")
+def ingest_stats(db: Session = Depends(get_db)):
+    """Сводка для админ-дашборда: объём каталога и качество приёма."""
+    threshold = settings.match_confidence_threshold
+    by_source = dict(
+        db.query(Price.source_type, func.count(Price.id)).group_by(Price.source_type).all()
+    )
+    return {
+        "clinics": db.query(func.count(Clinic.id)).scalar() or 0,
+        "cities": db.query(func.count(func.distinct(Clinic.city))).scalar() or 0,
+        "services": db.query(func.count(ServiceCatalog.id)).scalar() or 0,
+        "prices": db.query(func.count(Price.id)).scalar() or 0,
+        "runs": db.query(func.count(IngestionRun.id)).scalar() or 0,
+        "needs_review": db.query(func.count(Price.id))
+        .filter(Price.match_confidence < threshold).scalar() or 0,
+        "by_source": by_source,
+    }
 
 
 class ScrapeIn(BaseModel):

@@ -1,9 +1,12 @@
 // Типизированные хелперы для обращения к FastAPI-бэкенду агрегатора.
 
 import type {
+  BatchResult,
   ChatMessage,
   ChatResponse,
   ClinicOut,
+  IngestionRun,
+  IngestionStats,
   NormalizationPreview,
   SearchParams,
   ServiceComparison,
@@ -107,6 +110,27 @@ export function previewNormalization(
     body: JSON.stringify({ names }),
     signal,
   });
+}
+
+// --- Кейс 1: админ-приём ---
+export function getIngestionStats(signal?: AbortSignal): Promise<IngestionStats> {
+  return apiFetch<IngestionStats>("/api/ingest/stats", { signal });
+}
+
+export function getIngestionRuns(limit = 50, signal?: AbortSignal): Promise<IngestionRun[]> {
+  return apiFetch<IngestionRun[]>(`/api/ingest/runs?limit=${limit}`, { signal });
+}
+
+export function uploadBatch(files: File[], clinicId?: number): Promise<BatchResult> {
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  if (clinicId != null) form.append("clinic_id", String(clinicId));
+  return apiFetch<BatchResult>("/api/ingest/upload-batch", { method: "POST", body: form });
+}
+
+// Прямая ссылка на скачивание (same-origin: /api проксируется Next-ом на бэкенд).
+export function catalogExportUrl(format: "xlsx" | "csv"): string {
+  return `/api/export/catalog?format=${format}`;
 }
 
 export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {

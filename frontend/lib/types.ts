@@ -54,6 +54,45 @@ export interface NormalizationPreview {
   candidates: string[];
 }
 
+// --- Кейс 1: админ-приём (дашборд, журнал, пакетная загрузка) ---
+export interface IngestionRun {
+  id: number;
+  source_id: number | null;
+  channel: string;
+  format: string;
+  status: string;
+  items_found: number;
+  message: string;
+  created_at: string;
+}
+
+export interface IngestionStats {
+  clinics: number;
+  cities: number;
+  services: number;
+  prices: number;
+  runs: number;
+  needs_review: number;
+  by_source: Record<string, number>;
+}
+
+export interface BatchFileResult {
+  file: string;
+  status: "ok" | "empty" | "error";
+  clinic_id?: number;
+  format?: string;
+  items?: number;
+  matched?: number;
+  needs_review?: number;
+  run_id?: number;
+  error?: string;
+}
+
+export interface BatchResult {
+  files: BatchFileResult[];
+  totals: { files: number; ok: number; items: number; matched: number; needs_review: number };
+}
+
 // --- Чат-помощник ---
 export interface ChatMessage {
   role: "user" | "assistant";
