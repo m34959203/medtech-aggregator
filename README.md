@@ -1,5 +1,10 @@
 # МедЦена — объединённая Medtech-платформа
 
+[![CI](https://img.shields.io/github/actions/workflow/status/m34959203/medtech-aggregator/ci.yml?branch=main&label=CI)](https://github.com/m34959203/medtech-aggregator/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Stack](https://img.shields.io/badge/stack-FastAPI%20%C2%B7%20Next.js-black)]()
+[![Hackathon](https://img.shields.io/badge/Terricon-Medtech%20Hackathon-7c3aed)]()
+
 > Хакатон **Medtech Hackathon** (Terricon Valley), 26–28 июня. Один сквозной продукт, закрывающий оба кейса:
 > **Кейс 1** (обработка прайсов клиник) + **Кейс 2** (агрегатор сравнения цен).
 
@@ -137,5 +142,20 @@ Python · FastAPI · SQLAlchemy · pandas · pdfplumber · rapidfuzz · Beautifu
 ```bash
 cd backend && python -m pytest -q       # 23 теста: парсер, нормализация, дедупликация, чат
 ```
+
+## Roadmap
+
+- [x] MVP — оба кейса в одном сквозном продукте (приём прайсов → нормализация → агрегатор + чат-помощник)
+- [ ] Личный кабинет клиники (статусы загрузок, ручная модерация спорных сопоставлений)
+- [ ] Расширение pull-источников и устойчивый Playwright-скрапинг JS-сайтов
+- [ ] Прод-релиз `v1.0.0`
+
+Подробно: [docs/roadmap.md](docs/roadmap.md).
+
+## Вклад и лицензия
+
+- Как участвовать: [CONTRIBUTING.md](CONTRIBUTING.md)
+- История изменений: [CHANGELOG.md](CHANGELOG.md)
+- Лицензия: [MIT](LICENSE)
 
 См. также: [docs/architecture.md](docs/architecture.md) · [docs/pitch.md](docs/pitch.md) · [docs/legal.md](docs/legal.md)
