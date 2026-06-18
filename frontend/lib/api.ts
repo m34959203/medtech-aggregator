@@ -133,6 +133,21 @@ export function catalogExportUrl(format: "xlsx" | "csv"): string {
   return `/api/export/catalog?format=${format}`;
 }
 
+// --- Петля обратной связи «цена неверная» ---
+export function reportPrice(report: {
+  clinic_id?: number;
+  clinic_name?: string;
+  service?: string;
+  price?: number;
+  note?: string;
+}): Promise<unknown> {
+  return apiFetch("/api/feedback/price-report", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(report),
+  });
+}
+
 export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {
   return apiFetch<ChatResponse>("/api/chat", {
     method: "POST",

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..models import Clinic, IngestionRun, Price, ServiceCatalog, Source
+from ..models import Clinic, IngestionRun, Price, PriceReport, ServiceCatalog, Source
 from ..schemas import IngestionResult, IngestionRunOut
 from ..ingestion import api_connector, web_scraper
 from ..ingestion.file_parser import detect_and_parse
@@ -148,6 +148,14 @@ def ingest_stats(db: Session = Depends(get_db)):
         "runs": db.query(func.count(IngestionRun.id)).scalar() or 0,
         "needs_review": db.query(func.count(Price.id))
         .filter(Price.match_confidence < threshold).scalar() or 0,
+        # Мониторинг скраперов: прогоны, отдавшие 0 позиций или упавшие — источник
+        # тихо ломается при редизайне сайта, иначе данные деградируют незаметно.
+        "empty_runs": db.query(func.count(IngestionRun.id))
+        .filter(IngestionRun.items_found == 0).scalar() or 0,
+        "failed_runs": db.query(func.count(IngestionRun.id))
+        .filter(IngestionRun.status == "error").scalar() or 0,
+        "reports_new": db.query(func.count(PriceReport.id))
+        .filter(PriceReport.status == "new").scalar() or 0,
         "by_source": by_source,
     }
 

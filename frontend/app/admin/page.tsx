@@ -53,6 +53,8 @@ export default function AdminPage() {
         </div>
       )}
 
+      <HealthBanner stats={stats} />
+
       <StatsGrid stats={stats} />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -61,6 +63,31 @@ export default function AdminPage() {
       </div>
 
       <RunsTable runs={runs} />
+    </div>
+  );
+}
+
+function HealthBanner({ stats }: { stats: IngestionStats | null }) {
+  if (!stats) return null;
+  const alerts: string[] = [];
+  if (stats.failed_runs > 0) alerts.push(`${stats.failed_runs} прогонов с ошибкой`);
+  if (stats.empty_runs > 0) alerts.push(`${stats.empty_runs} прогонов вернули 0 позиций (источник мог сломаться)`);
+  if (stats.reports_new > 0) alerts.push(`${stats.reports_new} жалоб «цена неверная» на проверку`);
+  if (alerts.length === 0) {
+    return (
+      <div className="mb-6 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-100">
+        ✓ Конвейер здоров: ошибок и пустых прогонов нет.
+      </div>
+    );
+  }
+  return (
+    <div className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-inset ring-amber-100">
+      <p className="font-medium">⚠ Требует внимания:</p>
+      <ul className="mt-1 list-inside list-disc">
+        {alerts.map((a) => (
+          <li key={a}>{a}</li>
+        ))}
+      </ul>
     </div>
   );
 }

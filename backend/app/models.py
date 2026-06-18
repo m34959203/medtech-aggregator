@@ -79,6 +79,24 @@ class IngestionRun(Base):
     prices: Mapped[list["Price"]] = relationship(back_populates="run")
 
 
+class PriceReport(Base):
+    """Жалоба пользователя «цена неверная» — петля обратной связи (Кейс 1, доверие).
+
+    Дёшево повышает качество: спорные цены попадают в очередь на ручную проверку.
+    """
+
+    __tablename__ = "price_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True)
+    clinic_name: Mapped[str] = mapped_column(Text, default="")
+    service: Mapped[str] = mapped_column(Text, default="")
+    price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="new")  # new / reviewed / fixed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Price(Base):
     """Цена услуги в конкретной клинике — результат нормализации."""
 

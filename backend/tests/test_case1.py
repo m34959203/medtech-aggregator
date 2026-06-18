@@ -109,6 +109,8 @@ def test_stats_endpoint(client):
     assert st["clinics"] == 2 and st["services"] >= 2
     assert st["prices"] >= 1 and st["runs"] >= 1
     assert "upload" in st["by_source"]
+    for k in ("empty_runs", "failed_runs", "reports_new"):
+        assert k in st and isinstance(st[k], int)
 
 
 def test_compare_exposes_attributes_and_variants(client):
@@ -131,3 +133,14 @@ def test_compare_exposes_attributes_and_variants(client):
     assert "кровь" in cmp["attributes"]["tags"]
     sib = {v["canonical_name"] for v in cmp["variants"]}
     assert "Глюкоза в моче" in sib  # перелинковка на другой вариант
+
+
+def test_price_report_feedback_loop(client):
+    r = client.post("/api/feedback/price-report", json={
+        "clinic_id": 1, "clinic_name": "Клиника А", "service": "ОАК", "price": 2500,
+        "note": "на сайте дешевле",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "new"
+    lst = client.get("/api/feedback/price-reports?status=new").json()
+    assert any(x["clinic_name"] == "Клиника А" for x in lst)

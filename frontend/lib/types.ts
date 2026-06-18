@@ -20,6 +20,22 @@ export interface PriceOffer {
   valid_from: string; // ISO date
 }
 
+export interface ServiceVariant {
+  service_id: number;
+  canonical_name: string;
+  label: string;
+  offers_count: number;
+  min_price: number;
+}
+
+export interface ServiceAttributes {
+  base_key?: string;
+  visit?: "primary" | "repeat" | "online" | "pediatric" | null;
+  biomaterial?: "blood" | "urine" | null;
+  variant?: string | null;
+  tags?: string[];
+}
+
 export interface ServiceComparison {
   service_id: number;
   canonical_name: string;
@@ -28,6 +44,8 @@ export interface ServiceComparison {
   min_price: number;
   max_price: number;
   offers: PriceOffer[];
+  attributes?: ServiceAttributes;
+  variants?: ServiceVariant[];
 }
 
 export interface ClinicOut {
@@ -73,6 +91,9 @@ export interface IngestionStats {
   prices: number;
   runs: number;
   needs_review: number;
+  empty_runs: number;
+  failed_runs: number;
+  reports_new: number;
   by_source: Record<string, number>;
 }
 

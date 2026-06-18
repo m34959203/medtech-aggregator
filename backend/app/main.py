@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
-from .routers import aggregator, chat, clinics, export, ingestion
+from .routers import aggregator, chat, clinics, export, feedback, ingestion
 
 app = FastAPI(
     title="Medtech Aggregator API",
@@ -38,3 +38,4 @@ app.include_router(ingestion.router)
 app.include_router(aggregator.router)
 app.include_router(chat.router)
 app.include_router(export.router)
+app.include_router(feedback.router)

@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { compare } from "@/lib/api";
+import { compare, reportPrice } from "@/lib/api";
 import { formatDate, formatPrice } from "@/lib/format";
-import type { ServiceComparison, SortOrder } from "@/lib/types";
+import type { ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
 import CategoryBadge from "./CategoryBadge";
 import SourceBadge from "./SourceBadge";
 import { OfferRowSkeleton } from "./Skeletons";
@@ -94,6 +95,18 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">
           {data.canonical_name}
         </h1>
+        {data.attributes?.tags && data.attributes.tags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {data.attributes.tags.map((t) => (
+              <span
+                key={t}
+                className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs font-medium text-ink-600"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
         <p className="text-sm text-ink-500">
           {data.offers_count > 0 ? (
             <>
@@ -108,6 +121,8 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
           )}
         </p>
       </header>
+
+      <VariantsBar variants={data.variants} city={city} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Левая колонка: фильтры + список */}
@@ -150,6 +165,7 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
                   isCheapest={cheapest?.clinic_id === o.clinic_id && i === 0}
                   isActive={activeClinicId === o.clinic_id}
                   onSelect={() => setActiveClinicId(o.clinic_id)}
+                  serviceName={data.canonical_name}
                 />
               ))}
             </ul>
@@ -174,6 +190,68 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportPriceButton({
+  serviceName,
+  offer,
+}: {
+  serviceName: string;
+  offer: import("@/lib/types").PriceOffer;
+}) {
+  const [state, setState] = useState<"idle" | "sending" | "done">("idle");
+  if (state === "done") {
+    return <p className="text-xs text-emerald-600">Спасибо! Передали на проверку.</p>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.stopPropagation(); // не триггерить выбор клиники на карте
+        if (state === "sending") return;
+        setState("sending");
+        try {
+          await reportPrice({
+            clinic_id: offer.clinic_id,
+            clinic_name: offer.clinic_name,
+            service: serviceName,
+            price: offer.price,
+          });
+          setState("done");
+        } catch {
+          setState("idle");
+        }
+      }}
+      className="text-xs text-ink-400 underline-offset-2 transition hover:text-amber-600 hover:underline"
+    >
+      {state === "sending" ? "Отправляю…" : "⚠ Цена неверная?"}
+    </button>
+  );
+}
+
+function VariantsBar({ variants, city }: { variants?: ServiceVariant[]; city: string }) {
+  if (!variants || variants.length === 0) return null;
+  const href = (id: number) =>
+    city ? `/service/${id}?city=${encodeURIComponent(city)}` : `/service/${id}`;
+  return (
+    <div className="rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3">
+      <p className="mb-2 text-xs font-medium text-ink-500">
+        Другие варианты этой услуги — это разные продукты, сравниваются отдельно:
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {variants.map((v) => (
+          <Link
+            key={v.service_id}
+            href={href(v.service_id)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700 transition hover:border-brand-300 hover:text-brand-700"
+          >
+            {v.canonical_name}
+            <span className="text-ink-400">от {formatPrice(v.min_price)}</span>
+          </Link>
+        ))}
       </div>
     </div>
   );
@@ -265,20 +343,38 @@ function Filters(p: FiltersProps) {
   );
 }
 
+function daysSince(iso: string): number | null {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86_400_000);
+}
+
+function freshnessLabel(days: number | null): string {
+  if (days == null) return "";
+  if (days <= 0) return "обновлено сегодня";
+  if (days === 1) return "обновлено вчера";
+  if (days < 30) return `обновлено ${days} дн. назад`;
+  return `данные старше 30 дней`;
+}
+
 function OfferRow({
   offer,
   isCheapest,
   isActive,
   onSelect,
+  serviceName,
 }: {
   offer: import("@/lib/types").PriceOffer;
   isCheapest: boolean;
   isActive: boolean;
   onSelect: () => void;
+  serviceName: string;
 }) {
   const confidence = Math.round(offer.match_confidence * 100);
   const liRef = useRef<HTMLLIElement>(null);
   const hasGeo = offer.lat != null && offer.lng != null;
+  const days = daysSince(offer.valid_from);
+  const stale = days != null && days > 30;
 
   // Когда клиника выбрана на карте — подтягиваем её карточку в зону видимости.
   useEffect(() => {
@@ -306,7 +402,7 @@ function OfferRow({
       title={hasGeo ? "Показать на карте" : undefined}
       className={`card p-4 transition sm:p-5 ${
         hasGeo ? "cursor-pointer hover:border-brand-300" : ""
-      } ${
+      } ${stale ? "opacity-60" : ""} ${
         isActive
           ? "ring-2 ring-brand-500"
           : isCheapest
@@ -332,16 +428,24 @@ function OfferRow({
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <SourceBadge source={offer.source_type} />
-            <span className="text-xs text-ink-400">
-              точность сопоставления {confidence}%
+            <span
+              className={`inline-flex items-center gap-1 text-xs ${
+                stale ? "font-medium text-amber-600" : "text-ink-400"
+              }`}
+              title={`Актуально с ${formatDate(offer.valid_from)}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${stale ? "bg-amber-500" : "bg-emerald-500"}`} />
+              {freshnessLabel(days)}
             </span>
+            <span className="text-xs text-ink-400">точность {confidence}%</span>
           </div>
-          <p className="text-xs text-ink-400">
-            Актуально с {formatDate(offer.valid_from)}
-            {offer.raw_name && offer.raw_name !== offer.clinic_name ? (
-              <span className="text-ink-300"> · «{offer.raw_name}»</span>
-            ) : null}
-          </p>
+          {offer.raw_name && offer.raw_name !== offer.clinic_name && (
+            <p className="text-xs text-ink-300">в прайсе: «{offer.raw_name}»</p>
+          )}
+          <ReportPriceButton
+            serviceName={serviceName}
+            offer={offer}
+          />
         </div>
 
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
