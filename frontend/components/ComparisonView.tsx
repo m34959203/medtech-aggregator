@@ -327,8 +327,8 @@ function OfferRow({
             )}
           </div>
           <p className="text-sm text-ink-500">
-            {offer.district}
-            {offer.address ? ` · ${offer.address}` : ""}
+            {[offer.district, offer.address].filter(Boolean).join(" · ") ||
+              "Адрес уточняйте в клинике"}
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <SourceBadge source={offer.source_type} />

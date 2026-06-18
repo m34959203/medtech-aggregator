@@ -150,7 +150,9 @@ export default function ChatWidget() {
                             <span className="truncate">
                               {o.is_cheapest && <span className="mr-1">🏆</span>}
                               {o.service}
-                              {o.district ? ` · ${o.district}` : ""}
+                              {o.district || o.city
+                                ? ` · ${o.district || o.city}`
+                                : ""}
                             </span>
                             {o.phone && (
                               <a href={telHref(o.phone)} className="whitespace-nowrap font-medium text-brand-600 hover:underline">

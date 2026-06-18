@@ -65,18 +65,31 @@ class ChatResponse(BaseModel):
 
 # --- Поиск по справочнику (общая воронка с витриной) ---
 def _rank_services(db: Session, query: str, limit: int = 3) -> list[ServiceCatalog]:
-    """Фаззи-подбор услуг справочника под свободный запрос пользователя."""
+    """Фаззи-подбор услуг справочника под свободный запрос пользователя.
+
+    Если пользователь явно назвал услугу (название справочника целиком входит в
+    запрос — «...общий анализ крови...»), отдаём ТОЛЬКО её и близкие прямые
+    совпадения, не размывая выдачу похожими услугами («общий анализ мочи»,
+    «глюкоза»). Это убирает ложные 🏆 и неверный «самый дешёвый» в ответе.
+    """
     q = _clean(query)
     if not q:
         return []
+    direct: list[ServiceCatalog] = []
     scored: list[tuple[float, ServiceCatalog]] = []
     for svc in db.query(ServiceCatalog).all():
         keys = [svc.canonical_name] + [str(s) for s in (svc.synonyms or [])]
-        best = max((fuzz.token_set_ratio(q, _clean(k)) for k in keys), default=0.0)
-        if any(q in _clean(k) for k in keys):  # прямое вхождение — приоритет
-            best = max(best, 90.0)
-        if best >= 55:
+        cleaned = [_clean(k) for k in keys]
+        # Явное упоминание услуги в запросе (длиной от 4 символов — чтобы «КТ»/«ОАК»
+        # не цеплялись как случайные подстроки).
+        if any(k and len(k) >= 4 and k in q for k in cleaned):
+            direct.append(svc)
+            continue
+        best = max((fuzz.token_set_ratio(q, k) for k in cleaned), default=0.0)
+        if best >= 60:
             scored.append((best, svc))
+    if direct:
+        return direct[:limit]
     scored.sort(key=lambda t: t[0], reverse=True)
     return [svc for _, svc in scored[:limit]]
 
@@ -99,7 +112,11 @@ def _search_offers(
             continue
         summaries.append(cmp)
         cheapest = cmp.min_price
+        marked = False  # 🏆 ставим ровно одной клинике, даже при равных ценах
         for o in cmp.offers[:per_service]:
+            is_cheapest = not marked and o.price == cheapest
+            if is_cheapest:
+                marked = True
             offers.append(
                 ChatOffer(
                     service=cmp.canonical_name,
@@ -110,7 +127,7 @@ def _search_offers(
                     phone=o.phone,
                     price=o.price,
                     currency=o.currency,
-                    is_cheapest=(o.price == cheapest),
+                    is_cheapest=is_cheapest,
                 )
             )
     return offers, summaries
@@ -178,12 +195,33 @@ _SYSTEM = (
 
 
 def _detect_city(db: Session, text: str) -> str | None:
-    """Находит упомянутый в запросе город из числа имеющихся в базе."""
-    low = text.lower()
+    """Находит упомянутый в запросе город — с учётом падежей.
+
+    «в Караганде», «из Астаны», «по Шымкенту» — русские склонения меняют
+    окончание, поэтому точного вхождения мало. Сначала пробуем прямое вхождение
+    (именительный падеж), затем совпадение по основе слова и фаззи-похожесть.
+    """
+    low = _clean(text)
+    if not low:
+        return None
+    tokens = low.split()
+    best_city, best_score = None, 0.0
     for (city,) in db.query(distinct(Clinic.city)).all():
-        if city and city.lower() in low:
+        if not city:
+            continue
+        cl = _clean(city)
+        if not cl:
+            continue
+        if cl in low:  # именительный падеж / точное вхождение
             return city
-    return None
+        # Склонения: общая основа (Караганд|а→е, Астан|а→ы) либо высокая похожесть.
+        stem = cl[: max(4, len(cl) - 2)]
+        score = max((fuzz.ratio(tok, cl) for tok in tokens), default=0.0)
+        if any(tok.startswith(stem) for tok in tokens):
+            score = max(score, 90.0)
+        if score > best_score:
+            best_score, best_city = score, city
+    return best_city if best_score >= 80 else None
 
 
 def _chat_completion(messages: list[dict]) -> str:
