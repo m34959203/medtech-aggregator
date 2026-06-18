@@ -77,6 +77,8 @@ class ServiceComparison(BaseModel):
     variants: list[ServiceVariant] = []
     # Динамика цен из истории (если накоплено ≥2 точек): {points, change_pct, direction}
     price_trend: dict | None = None
+    # Онтология: {code, group, osms} — стандартный код, группа, покрытие ОСМС
+    ontology: dict | None = None
 
 
 class IngestionRunOut(BaseModel):

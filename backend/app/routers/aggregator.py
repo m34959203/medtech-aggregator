@@ -8,7 +8,7 @@ from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..ingestion import variants
+from ..ingestion import ontology, variants
 from ..models import Clinic, Price, PriceHistory, ServiceCatalog
 from ..schemas import PriceOffer, ServiceComparison, ServiceOut, ServiceVariant
 
@@ -145,6 +145,7 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
         attributes=variants.attributes(service.canonical_name),
         variants=_variants_of(db, service) if with_variants else [],
         price_trend=_price_trend(db, service.id) if with_variants else None,
+        ontology=ontology.info(service.canonical_name),
     )
 
 
@@ -160,6 +161,17 @@ def compare(
     if not service:
         raise HTTPException(404, "Услуга не найдена")
     return _build_comparison(db, service, city, max_price, sort, with_variants=True)
+
+
+@router.get("/ontology")
+def ontology_map(db: Session = Depends(get_db)):
+    """Онтология справочника: клинические группы + код/группа/ОСМС по каждой услуге."""
+    out = []
+    for s in db.query(ServiceCatalog).order_by(ServiceCatalog.canonical_name).all():
+        info = ontology.info(s.canonical_name)
+        if info:
+            out.append({"service_id": s.id, "canonical_name": s.canonical_name, **info})
+    return {"groups": ontology.groups(), "services": out}
 
 
 @router.get("/services/{service_id}/history")

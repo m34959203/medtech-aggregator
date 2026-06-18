@@ -42,6 +42,12 @@ export interface PriceTrend {
   direction: "up" | "down" | "flat";
 }
 
+export interface ServiceOntology {
+  code: string;
+  group: string;
+  osms: boolean;
+}
+
 export interface ServiceComparison {
   service_id: number;
   canonical_name: string;
@@ -53,6 +59,7 @@ export interface ServiceComparison {
   attributes?: ServiceAttributes;
   variants?: ServiceVariant[];
   price_trend?: PriceTrend | null;
+  ontology?: ServiceOntology | null;
 }
 
 export interface ClinicOut {

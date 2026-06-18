@@ -95,18 +95,38 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">
           {data.canonical_name}
         </h1>
-        {data.attributes?.tags && data.attributes.tags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {data.attributes.tags.map((t) => (
-              <span
-                key={t}
-                className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs font-medium text-ink-600"
-              >
-                {t}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {data.ontology && (
+            <>
+              <span className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs font-medium text-ink-600">
+                {data.ontology.group}
               </span>
-            ))}
-          </div>
-        )}
+              {data.ontology.osms ? (
+                <span
+                  className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700"
+                  title="Услуга обычно покрывается ОСМС (справочно, по показаниям/направлению)"
+                >
+                  входит в ОСМС
+                </span>
+              ) : (
+                <span
+                  className="rounded-full bg-ink-50 px-2.5 py-0.5 text-xs font-medium text-ink-500"
+                  title="Обычно не входит в базовый пакет ОСМС или по квоте/направлению"
+                >
+                  вне ОСМС
+                </span>
+              )}
+            </>
+          )}
+          {data.attributes?.tags?.map((t) => (
+            <span
+              key={t}
+              className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs font-medium text-ink-600"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
         <p className="text-sm text-ink-500">
           {data.offers_count > 0 ? (
             <>
