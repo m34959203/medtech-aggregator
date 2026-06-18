@@ -179,3 +179,11 @@ Self-service портал — мостик «автосбор → партнёр
 - **Тесты**: conftest по умолчанию выключает (чтобы не мешать), `test_ratelimit.py` (юнит скользящего окна, 429 после лимита, выключение). 79 pytest.
 - `.env.example` RATE_LIMIT_ENABLED, API.md/CHANGELOG.
 **Гоча скрипта**: автопатч импортов сломал многострочный `from ..auth import (` в auth.py — поправил вручную. **Осталось по безопасности**: Redis для rate-limit на мультиворкер, security-headers (CSP/HSTS) — обычно на уровне Caddy/CF. Дальше для продукта: Postgres-рантайм, pgvector.
+
+## Чек-поинт 2026-06-18 (#12) — ГОДНЫЙ ПРОДУКТ: Postgres как прод-рантайм (ветка feat/product-evolution)
+80 pytest, прод на main не тронут.
+- **db.py**: для не-sqlite движок с `pool_pre_ping=True`, `pool_size=5`, `max_overflow=5`, `pool_recycle=1800` (скромный пул для маленького VPS); sqlite-ветка без изменений.
+- **docker-compose.prod.yml**: новый сервис `medtech-db` (postgres:16-alpine, healthcheck, volume `medtech_pgdata`); backend `DATABASE_URL` → postgres, `depends_on: condition: service_healthy`; добавлены env `ADMIN_TOKEN`/`COOKIE_SECURE`(true)/`RATE_LIMIT_ENABLED`. Схему накатывает entrypoint (migrate).
+- **`copy_to_pg.py`**: разовый перенос SQLite→PG в FK-безопасном порядке + сброс PG-sequence (иначе дубль ключа на следующем INSERT). Проверено end-to-end на временном PG (5547): данные+access_token перенесены, новый insert ок. CI-тест `test_copy.py` (sqlite→sqlite).
+- README/CHANGELOG: прод-Postgres + cutover + прод-env.
+**КУТОВЕР НА ПРОДЕ (когда мержим)**: 1) поднять medtech-db, 2) `app.migrate` накатит схему в PG, 3) `python copy_to_pg.py sqlite:////data/medtech.db <pg_url>` из бэкенд-контейнера со старым SQLite-volume, 4) переключить DATABASE_URL. Прод сейчас НЕ трогаю. Дальше: pgvector-семантика (теперь PG есть), Redis для rate-limit.

@@ -94,11 +94,20 @@ cp .env.example .env.local                # NEXT_PUBLIC_API_URL + NEXT_PUBLIC_YA
 npm run dev                                # витрина на http://localhost:3000
 ```
 
-### Postgres вместо SQLite (опционально)
+### Postgres (прод-рантайм; в dev — опционально)
+SQLite хватает для разработки. Прод (`docker-compose.prod.yml`) поднимает Postgres
+(`medtech-db`); схема применяется миграциями на старте (`entrypoint → python -m app.migrate`).
 ```bash
-docker compose up -d db
+docker compose up -d db                     # dev: локальный Postgres на :5544
 # в backend/.env: DATABASE_URL=postgresql+psycopg2://medtech:medtech@localhost:5544/medtech
+python -m app.migrate                       # применить схему
 ```
+**Перенос данных SQLite → Postgres** (разовый cutover):
+```bash
+python copy_to_pg.py sqlite:////data/medtech.db \
+  postgresql+psycopg2://medtech:medtech@medtech-db:5432/medtech
+```
+Прод-env: `POSTGRES_PASSWORD`, `ADMIN_TOKEN` (иначе админ-зона закрыта), `COOKIE_SECURE=true`.
 
 ---
 

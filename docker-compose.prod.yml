@@ -5,23 +5,49 @@
 #   docker network connect dvorets-gornyakov_default cloudflared-technokod  # (если ещё не в сети)
 #   далее в CF Zero Trust добавить Public Hostname medtech.technokod.kz → http://medtech-frontend:3000
 #
-# Хост-порты 8088/8089 опубликованы только для локальной проверки.
+# Прод-рантайм БД — Postgres (medtech-db). Схема применяется миграциями на старте
+# бэкенда (entrypoint → python -m app.migrate). Хост-порты 8088/8089 — локальная проверка.
 
 services:
+  medtech-db:
+    image: postgres:16-alpine
+    container_name: medtech-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medtech
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medtech}
+      POSTGRES_DB: medtech
+    volumes:
+      - medtech_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medtech -d medtech"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - medtech
+
   medtech-backend:
     build: ./backend
     container_name: medtech-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: sqlite:////data/medtech.db
+      DATABASE_URL: postgresql+psycopg2://medtech:${POSTGRES_PASSWORD:-medtech}@medtech-db:5432/medtech
       MATCH_CONFIDENCE_THRESHOLD: "0.78"
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
       # Чат-помощник: провайдер LLM (auto/alem/groq). AlemLLM — KZ-модель.
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       ALEM_API_KEY: ${ALEM_API_KEY:-}
+      # Безопасность: токен админ-зоны (пусто → админ закрыт), cookie только по HTTPS.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
     volumes:
-      - medtech_data:/data
+      - medtech_data:/data          # загрузки/легаси-SQLite (на случай миграции данных)
+    depends_on:
+      medtech-db:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8089:8000"   # локальная проверка
     networks:
@@ -46,6 +72,7 @@ services:
 
 volumes:
   medtech_data:
+  medtech_pgdata:
 
 networks:
   medtech:
