@@ -123,6 +123,10 @@ curl -G localhost:8000/api/compare/1 --data-urlencode sort=price_asc
 | Метод | Путь | Назначение |
 |---|---|---|
 | POST | `/api/ingest/upload` | ① загрузка прайса (xlsx/csv/pdf) |
+| POST | `/api/ingest/upload-batch` | ① пакетный приём архива (.zip / N прайсов) → один отчёт |
+| GET | `/api/ingest/stats` | сводка приёма для админ-дашборда |
+| GET | `/api/ingest/runs` | журнал прогонов нормализации |
+| GET | `/api/export/catalog?format=xlsx\|csv` | выгрузка единого нормализованного каталога |
 | POST | `/api/ingest/preview` | сухой прогон нормализации (live-демо движка, без записи в БД) |
 | POST | `/api/ingest/scrape` | ② снять прайс с сайта клиники |
 | POST | `/api/ingest/api` | ② забрать прайс из REST/JSON API |
