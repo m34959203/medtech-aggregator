@@ -145,8 +145,8 @@ CLINICS = [
     ("Клиника «Мейірім»", "Астана", "Алматинский", "г. Астана",
      51.1600, 71.4500, "+7 7172 73 00 00", "https://meirim-ast.103.kz/pricing/", "clinic"),
     # — Клиника со своим прайс-листом (таблица) —
-    ("Медицинский центр «Луч»", "Астана", "Сарыаркинский", "г. Астана",
-     51.1700, 71.4200, "+7 7172 38 11 47",
+    ("Медицинский центр «Луч»", "Астана", "Сарыаркинский", "ул. Бараева, 21Б",
+     51.1700, 71.4200, "+7 7172 56 80 63",
      "https://luchcenter.kz/uslugi/33-prejskurant", "clinic"),
 ]
 
@@ -248,7 +248,16 @@ LAB_FALLBACK_CONTACT = {
     "Лаборатория SAPA Алматы": ("Алмалинский", "ул. Шагабутдинова, 169", "+7 727 292 52 62"),
     "Лаборатория SAPA Астана": ("Сарыаркинский", "ул. Каныша Сатпаева, 23/1", "+7 7172 25 40 96"),
     "Лаборатория SAPA Шымкент": ("Аль-Фарабийский", "ул. Байтурсынова, 4", "+7 700 750 50 07"),
+    # INVIVO: AJAX-скрейп отдаёт один и тот же алматинский контакт на все города,
+    # поэтому город-специфичные адреса задаём явно и применяем как приоритетный override.
+    "Лаборатория INVIVO Алматы": ("Алмалинский", "ул. Карасай батыра, 123 (уг. Муратбаева)", "+7 727 339 04 80"),
+    "Лаборатория INVIVO Астана": ("Есильский", "ул. Сауран, 5Д", "+7 7172 58 83 83"),
+    "Лаборатория INVIVO Караганда": ("Казыбекбийский", "ул. Таттимбета, 8/1", "+7 7212 99 09 09"),
 }
+# Сети, для которых скрейп ненадёжен (копирует контакт между городами) — адрес
+# из LAB_FALLBACK_CONTACT всегда приоритетнее скрейпнутого.
+LAB_CONTACT_OVERRIDE = {"Лаборатория INVIVO Алматы", "Лаборатория INVIVO Астана",
+                        "Лаборатория INVIVO Караганда"}
 
 
 def _build_clinics():
@@ -375,10 +384,12 @@ def main(reset: bool = True):
                 address = contact.get("address") or address
                 if contact.get("lat") and contact.get("lng"):
                     lat, lng = contact["lat"], contact["lng"]
-            # Фолбэк на реальный центральный филиал, если адрес не подтянулся.
-            if address == "сеть лабораторий" and name in LAB_FALLBACK_CONTACT:
+            # Фолбэк на реальный центральный филиал, если адрес не подтянулся,
+            # либо приоритетный override для сетей с ненадёжным скрейпом (INVIVO).
+            need_fallback = address == "сеть лабораторий" or name in LAB_CONTACT_OVERRIDE
+            if need_fallback and name in LAB_FALLBACK_CONTACT:
                 district, address, fb_phone = LAB_FALLBACK_CONTACT[name]
-                phone = phone or fb_phone
+                phone = fb_phone if name in LAB_CONTACT_OVERRIDE else (phone or fb_phone)
             load(name, city, lat, lng, items, district=district, address=address, phone=phone)
 
         n_cat = db.query(ServiceCatalog).count()
