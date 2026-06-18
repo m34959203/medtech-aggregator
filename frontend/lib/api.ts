@@ -181,8 +181,29 @@ export function createLead(lead: {
   });
 }
 
+// --- Спринт-3: корзина-рецепт ---
+import type { BasketResult, PortalView } from "./types";
+
+export function recommendBasket(input: {
+  text?: string;
+  names?: string[];
+  city?: string;
+}): Promise<BasketResult> {
+  return apiFetch<BasketResult>("/api/basket/recommend", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function recommendBasketFile(file: File, city?: string): Promise<BasketResult> {
+  const form = new FormData();
+  form.append("file", file);
+  if (city) form.append("city", city);
+  return apiFetch<BasketResult>("/api/basket/recommend-file", { method: "POST", body: form });
+}
+
 // --- Спринт-3: портал клиники ---
-import type { PortalView } from "./types";
 
 export function issuePortalAccess(
   clinicId: number,

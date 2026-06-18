@@ -169,6 +169,45 @@ export interface PortalView {
   confirmed_count: number;
 }
 
+// --- Спринт-3: корзина-рецепт ---
+export interface BasketCheapest {
+  clinic_id: number;
+  clinic_name: string;
+  city: string;
+  address: string;
+  phone: string;
+  price: number;
+}
+
+export interface BasketItem {
+  input: string;
+  service_id: number;
+  canonical: string;
+  confidence: number;
+  offers_count: number;
+  cheapest: BasketCheapest | null;
+}
+
+export interface BasketSingleClinic {
+  clinic_id: number;
+  clinic_name: string;
+  city: string;
+  phone: string;
+  address: string;
+  covered: number;
+  total: number;
+  missing: string[];
+}
+
+export interface BasketResult {
+  recognized: BasketItem[];
+  unrecognized: string[];
+  services_found: number;
+  total_cheapest_mixed: number;
+  best_single_clinic: BasketSingleClinic | null;
+  city: string | null;
+}
+
 // --- Чат-помощник ---
 export interface ChatMessage {
   role: "user" | "assistant";

@@ -114,6 +114,10 @@ class Normalizer:
         matched_key, score, _ = match
         return self.index[matched_key], score / 100.0
 
+    def match(self, raw: str) -> tuple[ServiceCatalog | None, float]:
+        """Read-only подбор услуги под сырое имя (без записи/LLM) — для корзины-рецепта."""
+        return self._fuzzy(raw)
+
     def _llm_decide(self, raw: str, candidates: list[ServiceCatalog]) -> dict | None:
         """Дизамбигуация через LLM (AlemLLM/Groq). None, если ключа нет/ошибка."""
         cand_text = "\n".join(f"- {c.canonical_name} (категория: {c.category})" for c in candidates)

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
 from .routers import (
-    aggregator, chat, clinics, export, feedback, ingestion, leads, portal, review,
+    aggregator, basket, chat, clinics, export, feedback, ingestion, leads, portal, review,
 )
 
 app = FastAPI(
@@ -44,3 +44,4 @@ app.include_router(feedback.router)
 app.include_router(leads.router)
 app.include_router(review.router)
 app.include_router(portal.router)
+app.include_router(basket.router)
