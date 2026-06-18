@@ -150,6 +150,32 @@ def parse_csv(content: bytes) -> list[RawItem]:
     return best
 
 
+# Строка прайса в свободном тексте: «Услуга .... 12 500 ₸» / «Приём врача 6000».
+_TEXT_LINE = re.compile(
+    r"^(.+?)[\s.]+(\d[\d\s.,]*\d|\d)\s*(?:тг|тенге|тнг|kzt|₸|руб)?\.?$",
+    re.IGNORECASE,
+)
+
+
+def _items_from_text(text: str) -> list[RawItem]:
+    """Парсит позиции из свободного текста (текстовый PDF или OCR-скан)."""
+    items: list[RawItem] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if len(line) < 4:
+            continue
+        m = _TEXT_LINE.search(line)
+        if not m:
+            continue
+        name = m.group(1).strip(" .:-—\t")
+        if not re.search(r"[A-Za-zА-Яа-яЁё]{3,}", name):  # в имени должны быть буквы
+            continue
+        price = parse_price(m.group(2))
+        if price and len(name) > 2:
+            items.append(RawItem(raw_name=name, price=price))
+    return items
+
+
 def parse_pdf(content: bytes) -> list[RawItem]:
     import pdfplumber
 
@@ -163,20 +189,30 @@ def parse_pdf(content: bytes) -> list[RawItem]:
                 df = pd.DataFrame(table[1:], columns=range(len(table[0])))
                 items.extend(_items_from_df(df))
             if not tables:
-                # текстовый фоллбэк: строки вида "Услуга .... 12 500"
-                text = page.extract_text() or ""
-                for line in text.splitlines():
-                    m = re.search(r"^(.*?)[\s.]{2,}([\d\s .,]+)$", line.strip())
-                    if m:
-                        price = parse_price(m.group(2))
-                        name = m.group(1).strip()
-                        if price and len(name) > 2:
-                            items.append(RawItem(raw_name=name, price=price))
+                items.extend(_items_from_text(page.extract_text() or ""))
+
+    # Скан без текстового слоя → OCR-фоллбэк (если tesseract доступен).
+    if not items:
+        from . import ocr
+        if ocr.ocr_available():
+            items = _items_from_text(ocr.pdf_to_text_ocr(content))
     return items
 
 
+_IMAGE_EXT = (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp")
+
+
+def parse_image(content: bytes) -> list[RawItem]:
+    """OCR изображения-скана прайса → позиции (пусто, если tesseract недоступен)."""
+    from . import ocr
+
+    if not ocr.ocr_available():
+        return []
+    return _items_from_text(ocr.image_to_text(content))
+
+
 def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[RawItem]]:
-    """Определяет формат по расширению и парсит. Возвращает (format, items)."""
+    """Определяет формат по расширению/содержимому и парсит. → (format, items)."""
     fn = filename.lower()
     if fn.endswith((".xlsx", ".xls")):
         return "xlsx", parse_excel(content)
@@ -184,9 +220,13 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[RawItem]]
         return "csv", parse_csv(content)
     if fn.endswith(".pdf"):
         return "pdf", parse_pdf(content)
+    if fn.endswith(_IMAGE_EXT):
+        return "scan", parse_image(content)
     # попытка угадать по содержимому
     if content[:4] == b"%PDF":
         return "pdf", parse_pdf(content)
     if content[:2] == b"PK":
         return "xlsx", parse_excel(content)
+    if content[:3] == b"\xff\xd8\xff" or content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "scan", parse_image(content)
     return "csv", parse_csv(content)

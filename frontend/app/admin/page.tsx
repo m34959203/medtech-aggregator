@@ -236,7 +236,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
     <div className="card p-5">
       <h2 className="text-base font-semibold text-ink-900">Пакетный приём архива</h2>
       <p className="mt-1 text-sm text-ink-500">
-        Загрузите .zip или несколько прайсов (xlsx/csv/pdf). Клиника берётся из
+        Загрузите .zip или несколько прайсов (xlsx/csv/pdf/скан/фото — OCR). Клиника берётся из
         префикса имени файла <code className="rounded bg-ink-100 px-1">«&lt;id&gt;_прайс.xlsx»</code>
         или из общего поля ниже.
       </p>
@@ -246,7 +246,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
           ref={inputRef}
           type="file"
           multiple
-          accept=".zip,.xlsx,.xls,.csv,.pdf"
+          accept=".zip,.xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.tiff,.webp"
           onChange={(e) => {
             setFiles(Array.from(e.target.files ?? []));
             setResult(null);

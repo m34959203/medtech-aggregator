@@ -175,7 +175,7 @@ function UploadOwn({ token, onDone }: { token: string; onDone: () => void }) {
       <input
         ref={inputRef}
         type="file"
-        accept=".xlsx,.xls,.csv,.pdf"
+        accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.tiff,.webp"
         className="hidden"
         onChange={async (e) => {
           const f = e.target.files?.[0];

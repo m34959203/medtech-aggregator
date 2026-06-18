@@ -56,3 +56,47 @@ def test_api_connector_json():
     items = api_connector.items_from_json(payload)
     assert len(items) == 2
     assert any(i.price == 4000 for i in items)
+
+
+# --- OCR / текстовый парсер сканов (Спринт-3) ---
+from app.ingestion.file_parser import _items_from_text, detect_and_parse  # noqa: E402
+from app.ingestion import ocr  # noqa: E402
+import pytest  # noqa: E402
+
+
+def test_items_from_text_dot_leaders_and_spaces():
+    text = (
+        "Прайс клиники\n"
+        "Общий анализ крови ......... 2 500 ₸\n"
+        "Приём терапевта 6000 тенге\n"
+        "УЗИ почек .... 6 500\n"
+        "Наименование услуги Цена\n"          # шапка без числа на конце → пропуск
+        "1234567\n"                            # только цифры, без букв → пропуск
+    )
+    items = {i.raw_name: i.price for i in _items_from_text(text)}
+    assert items["Общий анализ крови"] == 2500.0
+    assert items["Приём терапевта"] == 6000.0
+    assert items["УЗИ почек"] == 6500.0
+    assert "Наименование услуги" not in items and len(items) == 3
+
+
+def test_detect_image_routes_to_scan():
+    # PNG-сигнатура без tesseract → формат scan, позиций нет (грациозная деградация)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    fmt, items = detect_and_parse("recept.png", png)
+    assert fmt == "scan"
+    if not ocr.ocr_available():
+        assert items == []
+
+
+@pytest.mark.skipif(not ocr.ocr_available(), reason="tesseract не установлен в этом окружении")
+def test_ocr_roundtrip_image():
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (520, 90), "white")
+    d = ImageDraw.Draw(img)
+    d.text((10, 10), "Obshchii analiz krovi 2500", fill="black")
+    d.text((10, 45), "Priem terapevta 6000", fill="black")
+    import io as _io
+    buf = _io.BytesIO(); img.save(buf, format="PNG")
+    text = ocr.image_to_text(buf.getvalue())
+    assert "2500" in text or "6000" in text  # tesseract распознал цифры
