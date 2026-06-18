@@ -7,6 +7,7 @@ import {
   catalogExportUrl,
   getIngestionRuns,
   getIngestionStats,
+  issuePortalAccess,
   uploadBatch,
 } from "@/lib/api";
 import type { BatchResult, IngestionRun, IngestionStats } from "@/lib/types";
@@ -67,6 +68,7 @@ export default function AdminPage() {
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <ExportCard />
         <BatchUploadCard onDone={refresh} />
+        <PortalIssueCard />
       </div>
 
       <RunsTable runs={runs} />
@@ -126,6 +128,55 @@ function StatsGrid({ stats }: { stats: IngestionStats | null }) {
           {c.hint && <p className="text-xs text-ink-400">{c.hint}</p>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function PortalIssueCard() {
+  const [clinicId, setClinicId] = useState("");
+  const [link, setLink] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="card p-5">
+      <h2 className="text-base font-semibold text-ink-900">Портал клиники</h2>
+      <p className="mt-1 text-sm text-ink-500">
+        Выдать клинике ссылку для самостоятельной проверки и подтверждения цен
+        (автосбор → партнёрский актив).
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <input
+          type="number"
+          value={clinicId}
+          onChange={(e) => setClinicId(e.target.value)}
+          placeholder="ID клиники"
+          className="field max-w-[10rem] py-2 text-sm"
+        />
+        <button
+          type="button"
+          disabled={!clinicId}
+          onClick={async () => {
+            setErr(null);
+            setLink(null);
+            try {
+              const res = await issuePortalAccess(Number(clinicId));
+              setLink(res.portal_path);
+            } catch {
+              setErr("Клиника не найдена.");
+            }
+          }}
+          className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+        >
+          Выдать ссылку
+        </button>
+      </div>
+      {link && (
+        <div className="mt-3 rounded-lg bg-ink-50 p-3 text-sm ring-1 ring-inset ring-ink-100">
+          <Link href={link} className="break-all font-medium text-brand-700 hover:underline">
+            {link}
+          </Link>
+        </div>
+      )}
+      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
     </div>
   );
 }

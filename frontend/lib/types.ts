@@ -143,6 +143,25 @@ export interface ReviewQueue {
   reports: ReviewReport[];
 }
 
+// --- Спринт-3: портал клиники (self-service) ---
+export interface PortalPrice {
+  price_id: number;
+  service: string;
+  category: string;
+  raw_name: string;
+  price: number;
+  currency: string;
+  source_type: SourceType;
+  confirmed: boolean;
+  valid_from: string;
+}
+
+export interface PortalView {
+  clinic: { id: number; name: string; city: string; district: string; address: string; phone: string };
+  prices: PortalPrice[];
+  confirmed_count: number;
+}
+
 // --- Чат-помощник ---
 export interface ChatMessage {
   role: "user" | "assistant";

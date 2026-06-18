@@ -111,3 +111,10 @@ needs_review UI + лиды + геокодинг. 47 pytest (offline — conftest
 - **Геолокация**: `app/ingestion/geocode.py` (Nominatim, без ключа; `build_query` игнорит заглушки, `is_geocodable` требует номер дома) + скрипт `backfill_geocode.py` (лимит 1 req/сек, `--all`). Живой прогон — вручную (сетевой), логика покрыта тестами.
 - **Гоча тестов**: добавлен autouse-фикстура в `tests/conftest.py` — глушит LLM (`json_completion`→None + пустые ключи), иначе локально с ключом нормализатор ходил в сеть и давал новым услугам conf=1.0 (флаки + 8с→1с).
 Спринт-2 закрыт. Спринт-3 (портал клиник, pgvector+онтология, история цен, ОСМС) — следующий, gated на пилот. Мерж в main только после сдачи.
+
+## Чек-поинт 2026-06-18 (#4) — Спринт-3, флагман: портал клиники (ветка feat/product-evolution)
+Self-service портал — мостик «автосбор → партнёрский актив» (стратегически #1 по анализу). Passwordless (доступ по токену). 53 pytest, tsc+next build чисты. Прод на main не тронут.
+- **Модель**: `Clinic.access_token` (unique, выдаётся админом). ⚠️ ГОЧА деплоя: `create_all` НЕ добавит колонку в существующую прод-БД → при мерже нужен `ALTER TABLE clinics ADD COLUMN access_token VARCHAR(64)` (+ unique index). Тесты на свежей БД проходят.
+- **Бэкенд** `routers/portal.py`: `POST /api/portal/issue/{clinic_id}` (админ выдаёт токен+ссылку), `GET /api/portal/{token}` (клиника видит свои цены), `PATCH /api/portal/{token}/price/{id}` (правка → source_type=upload, conf=1.0 → автосбор не перетирает), `POST /api/portal/{token}/confirm-all`, `POST /api/portal/{token}/upload` (свой прайс через ingest_items). Чужие цены/битый токен → 404.
+- **Фронт**: `/clinic/[token]` (useParams) — таблица цен с инлайн-правкой, «подтвердить все», загрузка своего прайса, бейджи подтверждено/из автосбора; в `/admin` карточка `PortalIssueCard` (id клиники → ссылка). 6 тестов `test_portal.py`.
+Осталось в Спринте-3 (тяжёлое/внешнее, следующие заходы): история цен+тренды, pgvector+онтология (нужен Postgres+эмбеддинги), ОСМС/ДМС, OCR сканов. Мерж в main только после сдачи 26–28.06.

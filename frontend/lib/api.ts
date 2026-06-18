@@ -181,6 +181,37 @@ export function createLead(lead: {
   });
 }
 
+// --- Спринт-3: портал клиники ---
+import type { PortalView } from "./types";
+
+export function issuePortalAccess(
+  clinicId: number,
+): Promise<{ clinic_id: number; clinic_name: string; token: string; portal_path: string }> {
+  return apiFetch(`/api/portal/issue/${clinicId}`, { method: "POST" });
+}
+
+export function getPortal(token: string, signal?: AbortSignal): Promise<PortalView> {
+  return apiFetch<PortalView>(`/api/portal/${token}`, { signal });
+}
+
+export function editPortalPrice(token: string, priceId: number, price: number): Promise<unknown> {
+  return apiFetch(`/api/portal/${token}/price/${priceId}`, {
+    method: "PATCH",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ price }),
+  });
+}
+
+export function confirmAllPortal(token: string): Promise<{ confirmed: number }> {
+  return apiFetch(`/api/portal/${token}/confirm-all`, { method: "POST" });
+}
+
+export function uploadPortalPricelist(token: string, file: File): Promise<unknown> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch(`/api/portal/${token}/upload`, { method: "POST", body: form });
+}
+
 // --- Петля обратной связи «цена неверная» ---
 export function reportPrice(report: {
   clinic_id?: number;

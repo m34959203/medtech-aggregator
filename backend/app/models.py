@@ -28,6 +28,9 @@ class Clinic(Base):
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     phone: Mapped[str] = mapped_column(Text, default="")
+    # Токен доступа к self-service порталу клиники (passwordless). Выдаётся админом,
+    # клиника правит/подтверждает свои цены по ссылке /clinic/<token>.
+    access_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
 
     prices: Mapped[list["Price"]] = relationship(back_populates="clinic")
     sources: Mapped[list["Source"]] = relationship(back_populates="clinic")
