@@ -1,7 +1,7 @@
 """Логин/логаут админ-зоны (passwordless токен → httpOnly cookie)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from ..auth import (
@@ -12,6 +12,7 @@ from ..auth import (
     token_from_request,
 )
 from ..config import settings
+from ..ratelimit import rate_limit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -20,7 +21,7 @@ class LoginIn(BaseModel):
     token: str
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(rate_limit("login", 10))])
 def login(body: LoginIn, response: Response):
     if not settings.admin_token:
         raise HTTPException(503, "Админ-доступ не настроен.")

@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Added
+- **Rate-limit**: публичные POST (жалоба/лид/чат/корзина) и `auth/login` ограничены по IP (in-memory, `429` + `Retry-After`).
 - **Авторизация админ-зоны** (passwordless): `ADMIN_TOKEN` + httpOnly-cookie; закрыты `/admin`, ревью, экспорт, приём данных, выдача порталов; вход по magic-link `?key=`. Fail-closed при незаданном токене.
 - **Alembic-миграции**: схема управляется миграциями (`python -m app.migrate`), а не `create_all`; устойчиво к свежей/мигрированной/легаси БД; Postgres и SQLite.
 - **Кейс 1 — пакетный приём архива** (`POST /api/ingest/upload-batch`): .zip или несколько прайсов за раз, клиника по префиксу имени `«<id>_файл»` или общему `clinic_id`, единый отчёт по всем файлам.

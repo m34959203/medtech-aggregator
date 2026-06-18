@@ -171,3 +171,11 @@ Self-service портал — мостик «автосбор → партнёр
 - **Тесты**: conftest — автообход admin для прежних тестов + маркер `real_admin`; `test_auth.py` (5: 401 без токена, публичные открыты, Bearer/cookie-логин, неверный токен, logout). 76 pytest.
 - `.env.example`: `ADMIN_TOKEN` (ген `secrets.token_urlsafe(32)`) + `COOKIE_SECURE`. API.md/CHANGELOG обновлены.
 **Дальше**: Postgres как прод-рантайм (миграция данных), pgvector-семантика, rate-limit на публичные POST (жалоба/лид/чат). Прод/мерж — под контролем Дмитрия.
+
+## Чек-поинт 2026-06-18 (#11) — БЕЗОПАСНОСТЬ: rate-limit (ветка feat/product-evolution)
+Анти-абуз публичных POST и анти-брутфорс логина. 79 pytest, прод на main не тронут.
+- **`app/ratelimit.py`**: in-memory скользящее окно per-IP (threading.Lock, периодическая чистка), `client_ip` (X-Forwarded-For/CF-Connecting-IP/peer — за CF/Next-прокси), фабрика-зависимость `rate_limit(name, limit, window)`, реестр `LIMITERS`. `settings.rate_limit_enabled`.
+- **Лимиты**: feedback/price-report 15/мин, leads 10/мин, chat 20/мин, basket 15/мин (+file 10), ingest/preview 20/мин, **auth/login 10/мин** (анти-брутфорс). 429 + Retry-After.
+- **Тесты**: conftest по умолчанию выключает (чтобы не мешать), `test_ratelimit.py` (юнит скользящего окна, 429 после лимита, выключение). 79 pytest.
+- `.env.example` RATE_LIMIT_ENABLED, API.md/CHANGELOG.
+**Гоча скрипта**: автопатч импортов сломал многострочный `from ..auth import (` в auth.py — поправил вручную. **Осталось по безопасности**: Redis для rate-limit на мультиворкер, security-headers (CSP/HSTS) — обычно на уровне Caddy/CF. Дальше для продукта: Postgres-рантайм, pgvector.

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..ratelimit import rate_limit
 from ..auth import require_admin
 from ..models import Lead
 
@@ -41,7 +42,7 @@ class LeadOut(BaseModel):
     created_at: datetime
 
 
-@router.post("", response_model=LeadOut)
+@router.post("", response_model=LeadOut, dependencies=[Depends(rate_limit("lead", 10))])
 def create_lead(payload: LeadIn, db: Session = Depends(get_db)):
     digits = re.sub(r"\D", "", payload.phone)
     if len(digits) < 10:

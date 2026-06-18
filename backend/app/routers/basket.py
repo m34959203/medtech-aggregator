@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..ratelimit import rate_limit
 from ..ingestion import ocr
 from ..ingestion.file_parser import _IMAGE_EXT
 from ..ingestion.normalizer import Normalizer
@@ -125,7 +126,7 @@ class BasketIn(BaseModel):
     city: str | None = None
 
 
-@router.post("/recommend")
+@router.post("/recommend", dependencies=[Depends(rate_limit("basket", 15))])
 def recommend(payload: BasketIn, db: Session = Depends(get_db)):
     """Текст направления (или список услуг) → рекомендация где сдать выгодно."""
     names = payload.names or extract_service_names(payload.text or "")
@@ -134,7 +135,7 @@ def recommend(payload: BasketIn, db: Session = Depends(get_db)):
     return _recommend(db, names, payload.city)
 
 
-@router.post("/recommend-file")
+@router.post("/recommend-file", dependencies=[Depends(rate_limit("basket_file", 10))])
 async def recommend_file(
     file: UploadFile = File(...),
     city: str | None = Form(None),

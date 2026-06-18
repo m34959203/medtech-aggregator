@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from ..db import get_db
+from ..ratelimit import rate_limit
 from ..auth import require_admin
 from ..models import PriceReport
 from sqlalchemy.orm import Session
@@ -37,7 +38,7 @@ class PriceReportOut(BaseModel):
     created_at: datetime
 
 
-@router.post("/price-report", response_model=PriceReportOut)
+@router.post("/price-report", response_model=PriceReportOut, dependencies=[Depends(rate_limit("report", 15))])
 def report_price(payload: PriceReportIn, db: Session = Depends(get_db)):
     report = PriceReport(
         clinic_id=payload.clinic_id,

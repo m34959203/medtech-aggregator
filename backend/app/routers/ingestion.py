@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..ratelimit import rate_limit
 from ..db import get_db
 from ..auth import require_admin
 from ..models import Clinic, IngestionRun, Price, PriceReport, ServiceCatalog, Source
@@ -241,7 +242,7 @@ class PreviewIn(BaseModel):
     names: list[str]
 
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[Depends(rate_limit("preview", 20))])
 def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
     """Сухой прогон умной нормализации БЕЗ записи в БД — для live-демо движка.
 

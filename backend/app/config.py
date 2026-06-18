@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     admin_token: str = ""
     cookie_secure: bool = False  # True за HTTPS в проде (cookie только по TLS)
 
+    # Rate-limiting публичных POST (анти-абуз). In-memory per-IP; Redis — на масштаб.
+    rate_limit_enabled: bool = True
+
     # Чат-помощник. Провайдер OpenAI-совместимый: "alem" (AlemLLM, KZ) или "groq".
     # По умолчанию авто: если задан alem_api_key — alem, иначе groq.
     llm_provider: str = "auto"  # auto / alem / groq
