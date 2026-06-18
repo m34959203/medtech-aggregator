@@ -70,6 +70,25 @@ def _derive_appt_name(primary_canonical: str, modifier: str) -> str:
     return primary_canonical
 
 
+def _analyte_variant(raw: str, canonical: str) -> str | None:
+    """Биоматериал/вид анализа меняет сам аналит: «Глюкоза в моче» ≠ «Глюкоза (в крови)»,
+    «глюкозотолерантный тест» ≠ обычная глюкоза. Иначе сравнение цен мешает разные тесты.
+    """
+    low = raw.lower()
+    cl = canonical.lower()
+    # Глюкозотолерантный тест — отдельный продукт (нагрузочная проба, не разовый сахар).
+    if "глюкоз" in cl and re.search(r"толерант|глюкозотолер|нагрузочн|с нагрузкой", low):
+        return "Глюкозотолерантный тест"
+    # Моча vs кровь: сырое имя про мочу, а эталон — не мочевой аналит.
+    # Имя БЕЗ скобок («Глюкоза в моче»), иначе _clean срежет «(в моче)»/«(в крови)»
+    # к одному ключу «глюкоза» → коллизия в индексе нормализатора.
+    if "моч" in low and "моч" not in cl:
+        base = re.sub(r"\s*\([^)]*\)\s*$", "", canonical).strip()  # убрать хвост «(в крови)»
+        base = re.sub(r"\s+в\s+крови$", "", base, flags=re.I).strip()
+        return f"{base} в моче"
+    return None
+
+
 class Normalizer:
     def __init__(self, db: Session):
         self.db = db
@@ -142,12 +161,22 @@ class Normalizer:
         derived = _derive_appt_name(svc.canonical_name, mod)
         return self._find_or_create(derived, svc.category, raw_name, conf, is_new=False)
 
+    def _reroute_analyte(self, raw_name: str, svc: ServiceCatalog, conf: float) -> MatchResult | None:
+        """Не сливать мочу с кровью и глюкозотолерантный тест с обычной глюкозой."""
+        if not svc or svc.category != "Анализы":
+            return None
+        derived = _analyte_variant(raw_name, svc.canonical_name)
+        # сравнение буквальное: _clean срезает скобки и «(в моче)» совпало бы с эталоном
+        if not derived or derived.strip().lower() == svc.canonical_name.strip().lower():
+            return None
+        return self._find_or_create(derived, "Анализы", raw_name, conf, is_new=False)
+
     def normalize(self, raw_name: str) -> MatchResult:
         svc, conf = self._fuzzy(raw_name)
 
-        # 0. гард: повторный/онлайн/детский приём ≠ первичный — отводим в свою услугу
+        # 0. гард: повторный приём ≠ первичный, моча ≠ кровь — отводим в свою услугу
         if svc and conf >= self.threshold:
-            rerouted = self._reroute_appointment(raw_name, svc, conf)
+            rerouted = self._reroute_appointment(raw_name, svc, conf) or self._reroute_analyte(raw_name, svc, conf)
             if rerouted:
                 return rerouted
 
@@ -188,11 +217,18 @@ class Normalizer:
         svc, conf = self._fuzzy(raw_name)
         candidates = [c.canonical_name for c in self._top_candidates(raw_name, k=5)]
 
-        # 0. гард: повторный/онлайн/детский приём отводится в отдельную услугу
-        if svc and conf >= self.threshold and svc.category == "Приём врача":
-            mod = _appt_modifier(raw_name)
-            if mod and not _appt_modifier(svc.canonical_name):
-                derived = _derive_appt_name(svc.canonical_name, mod)
+        # 0. гард: повторный приём / моча отводятся в отдельную услугу
+        if svc and conf >= self.threshold:
+            derived = None
+            if svc.category == "Приём врача":
+                mod = _appt_modifier(raw_name)
+                if mod and not _appt_modifier(svc.canonical_name):
+                    derived = _derive_appt_name(svc.canonical_name, mod)
+            elif svc.category == "Анализы":
+                cand = _analyte_variant(raw_name, svc.canonical_name)
+                if cand and cand.strip().lower() != svc.canonical_name.strip().lower():
+                    derived = cand
+            if derived:
                 return {
                     "raw": raw_name, "canonical": derived, "category": svc.category,
                     "confidence": round(conf, 3), "method": "fuzzy", "is_new": _clean(derived) not in self.index,

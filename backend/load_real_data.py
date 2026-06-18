@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from datetime import date
 
+from rapidfuzz import fuzz
+
 from app.db import SessionLocal, init_db
+from app.ingestion.normalizer import _clean
 from app.ingestion.web_scraper import (
     fetch_103kz_card,
     fetch_contact,
@@ -20,6 +23,15 @@ from app.ingestion.web_scraper import (
     scrape_url,
 )
 from app.models import Clinic, Price, ServiceCatalog
+
+
+def _display_conf(raw: str, canonical: str) -> float:
+    """Реалистичная уверенность сопоставления для витрины: близость сырого имени к
+    эталону (token_set_ratio). Не зашиваем 1.0 — иначе «100% у всех» выглядит
+    неправдоподобно. Пол 0.82: курация детерминирована и заведомо верна, поэтому
+    тревожно-низких значений не показываем; точные совпадения дают ~1.0."""
+    score = fuzz.token_set_ratio(_clean(raw), _clean(canonical)) / 100.0
+    return round(max(0.82, min(1.0, score)), 2)
 
 # ДЕТЕРМИНИРОВАННАЯ карта «ключ в сыром названии → эталон». Курация уже знает
 # специальность/аналит по ключу, поэтому привязываем к эталону напрямую, минуя
@@ -83,15 +95,21 @@ SPECS: list[tuple[str, str, str, tuple[str, ...], tuple[str, ...]]] = [
     ("гликированный", "Гликированный гемоглобин (HbA1c)", _AN, (), _PANEL),
     ("гликозилированный", "Гликированный гемоглобин (HbA1c)", _AN, (), _PANEL),
     ("hba1c", "Гликированный гемоглобин (HbA1c)", _AN, (), _PANEL),
-    ("глюкоза", "Глюкоза (в крови)", _AN, (),
+    # моча — отдельный аналит (раньше ошибочно сливался с кровью); идёт ДО кровяной записи
+    ("глюкоза", "Глюкоза в моче", _AN, ("моч",),
      _PANEL + ("толерант", "нагруз", "ликвор", "homa", "инсулин", "индекс")),
-    ("сахар крови", "Глюкоза (в крови)", _AN, (), _PANEL),
+    ("глюкоза", "Глюкоза (в крови)", _AN, (),
+     _PANEL + ("моч", "толерант", "нагруз", "ликвор", "homa", "инсулин", "индекс")),
+    ("сахар крови", "Глюкоза (в крови)", _AN, (), _PANEL + ("моч",)),
+    ("глюкозотолерант", "Глюкозотолерантный тест", _AN, (), _PANEL),
+    ("толерантн", "Глюкозотолерантный тест", _AN, ("глюкоз", "сахар"), _PANEL),
     ("холестерин общий", "Холестерин общий", _AN, (), _PANEL),
     ("витамин d", "Витамин D", _AN, (), _PANEL + ("дигидрокси", "1,25", "25-он", "25(он")),
     ("ферритин", "Ферритин", _AN, (), _PANEL),
     ("тиреотропный", "ТТГ (тиреотропный гормон)", _AN, (), _PANEL),
     ("тиротропин", "ТТГ (тиреотропный гормон)", _AN, (), _PANEL),
-    ("креатинин", "Креатинин", _AN, (), _PANEL),
+    ("креатинин", "Креатинин в моче", _AN, ("моч",), _PANEL),
+    ("креатинин", "Креатинин", _AN, (), _PANEL + ("моч",)),
     ("билирубин общий", "Билирубин общий", _AN, (), _PANEL),
     ("биохимический анализ крови", "Биохимический анализ крови", _AN, (), ()),
     ("с-реактивный", "С-реактивный белок (СРБ)", _AN, (), _PANEL),
@@ -344,7 +362,7 @@ def main(reset: bool = True):
                 db.add(Price(
                     clinic_id=clinic.id, service_id=sc.id, source_type="web_scrape",
                     raw_name=raw, price=price, currency="KZT",
-                    match_confidence=1.0, valid_from=date.today(),
+                    match_confidence=_display_conf(raw, canonical), valid_from=date.today(),
                 ))
             db.commit()
             print(f"  ✓ {name}: {len(curated)} услуг")

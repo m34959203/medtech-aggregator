@@ -20,6 +20,8 @@ def db():
     s.add_all([
         ServiceCatalog(canonical_name="Общий анализ крови", category="Анализы",
                        synonyms=["ОАК", "Анализ крови общий"]),
+        ServiceCatalog(canonical_name="Глюкоза (в крови)", category="Анализы",
+                       synonyms=["сахар", "глюкоза"]),
         ServiceCatalog(canonical_name="Приём терапевта", category="Приём врача",
                        synonyms=["Консультация терапевта"]),
     ])
@@ -193,3 +195,25 @@ def test_appointment_modifier_not_merged_into_primary(db):
 
     ped = n.normalize("Приём детского терапевта")
     assert ped.service.id not in (primary.service.id, repeat.service.id)
+
+
+def test_analyte_urine_not_merged_with_blood(db):
+    """«Глюкоза в моче» / «Креатинин в моче» — отдельный аналит, не кровяной."""
+    n = Normalizer(db)
+    blood = n.normalize("Глюкоза (сахар крови)")
+    assert blood.service.canonical_name == "Глюкоза (в крови)"
+
+    urine = n.normalize("Глюкоза в моче")
+    assert urine.service.canonical_name == "Глюкоза в моче"
+    assert urine.service.id != blood.service.id
+
+    urine2 = n.normalize("Глюкоза (в моче) (Glucose)")
+    assert urine2.service.id == urine.service.id  # та же мочевая услуга
+
+
+def test_glucose_tolerance_is_separate(db):
+    n = Normalizer(db)
+    blood = n.normalize("Глюкоза крови")
+    ggt = n.normalize("Глюкозотолерантный тест")
+    assert ggt.service.canonical_name == "Глюкозотолерантный тест"
+    assert ggt.service.id != blood.service.id
