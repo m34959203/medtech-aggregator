@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { compare, createLead, reportPrice } from "@/lib/api";
 import { formatDate, formatPrice } from "@/lib/format";
-import type { ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
+import type { PriceTrend, ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
 import CategoryBadge from "./CategoryBadge";
 import SourceBadge from "./SourceBadge";
 import { OfferRowSkeleton } from "./Skeletons";
@@ -122,6 +122,7 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         </p>
       </header>
 
+      <PriceTrendBlock trend={data.price_trend} />
       <VariantsBar variants={data.variants} city={city} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -307,6 +308,47 @@ function ReportPriceButton({
     >
       {state === "sending" ? "Отправляю…" : "⚠ Цена неверная?"}
     </button>
+  );
+}
+
+function PriceTrendBlock({ trend }: { trend?: PriceTrend | null }) {
+  if (!trend || trend.points.length < 2) return null;
+  const vals = trend.points.map((p) => p.median);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const w = 120;
+  const h = 32;
+  const pad = 2;
+  const span = max - min || 1;
+  const pts = trend.points
+    .map((p, i) => {
+      const x = pad + (i * (w - 2 * pad)) / (trend.points.length - 1);
+      const y = h - pad - ((p.median - min) / span) * (h - 2 * pad);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const flat = trend.direction === "flat";
+  const up = trend.direction === "up";
+  const color = flat ? "#64748b" : up ? "#dc2626" : "#059669";
+  const label = flat
+    ? "цена стабильна"
+    : `цена ${up ? "выросла" : "снизилась"} на ${Math.abs(trend.change_pct)}%`;
+  return (
+    <div className="inline-flex items-center gap-3 rounded-xl border border-ink-100 bg-white px-3 py-2">
+      <svg viewBox={`0 0 ${w} ${h}`} className="h-8 w-[120px]" preserveAspectRatio="none" aria-hidden>
+        <polyline
+          points={pts}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="text-xs font-medium" style={{ color }}>
+        {label} <span className="text-ink-400">за период</span>
+      </span>
+    </div>
   );
 }
 

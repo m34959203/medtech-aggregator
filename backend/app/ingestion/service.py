@@ -10,12 +10,25 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import IngestionRun, Price, Source
+from ..models import IngestionRun, Price, PriceHistory, Source
 from ..schemas import IngestionResult
 from .file_parser import RawItem
 from .normalizer import Normalizer
 
 SOURCE_PRIORITY = {"upload": 3, "api": 2, "web_scrape": 1}
+
+
+def record_price_history(db: Session, clinic_id: int, service_id: int, price: float) -> None:
+    """Логирует цену в историю, только если она ОТЛИЧАЕТСЯ от последней записанной."""
+    last = (
+        db.query(PriceHistory)
+        .filter(PriceHistory.clinic_id == clinic_id, PriceHistory.service_id == service_id)
+        .order_by(PriceHistory.recorded_at.desc(), PriceHistory.id.desc())
+        .first()
+    )
+    if last is not None and float(last.price) == float(price):
+        return
+    db.add(PriceHistory(clinic_id=clinic_id, service_id=service_id, price=price))
 
 
 def ingest_items(
@@ -81,6 +94,7 @@ def ingest_items(
                 existing.run_id = run.id
                 existing.match_confidence = data["confidence"]
                 existing.valid_from = valid_from
+                record_price_history(db, clinic_id, sid, data["price"])
             # иначе оставляем официальную загрузку клиники как есть
             continue
         db.add(
@@ -96,6 +110,7 @@ def ingest_items(
                 valid_from=valid_from,
             )
         )
+        record_price_history(db, clinic_id, sid, data["price"])
 
     run.status = "normalized"
     run.message = f"Принято {len(items)}, услуг после дедупа {len(batch)}, на проверку {needs_review}"

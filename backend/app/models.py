@@ -139,3 +139,19 @@ class Price(Base):
     clinic: Mapped["Clinic"] = relationship(back_populates="prices")
     service: Mapped["ServiceCatalog"] = relationship(back_populates="prices")
     run: Mapped["IngestionRun"] = relationship(back_populates="prices")
+
+
+class PriceHistory(Base):
+    """Лог изменений цены (Спринт-3): снимок при создании/изменении цены.
+
+    Даёт тренды и историю — уникальный контент («цена выросла на 12% за месяц»)
+    и SEO-магнит. Пишется только при ИЗМЕНЕНИИ цены, чтобы не раздувать таблицу.
+    """
+
+    __tablename__ = "price_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), index=True)
+    service_id: Mapped[int] = mapped_column(ForeignKey("service_catalog.id"), index=True)
+    price: Mapped[float] = mapped_column(Numeric(12, 2))
+    recorded_at: Mapped[date] = mapped_column(Date, default=date.today, index=True)

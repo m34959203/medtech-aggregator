@@ -75,6 +75,8 @@ class ServiceComparison(BaseModel):
     # Модель «база + атрибуты варианта»: теги сопоставимости + сёстры-варианты
     attributes: dict = {}
     variants: list[ServiceVariant] = []
+    # Динамика цен из истории (если накоплено ≥2 точек): {points, change_pct, direction}
+    price_trend: dict | None = None
 
 
 class IngestionRunOut(BaseModel):

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..ingestion.file_parser import detect_and_parse
-from ..ingestion.service import ingest_items
+from ..ingestion.service import ingest_items, record_price_history
 from ..models import Clinic, Price, ServiceCatalog
 
 router = APIRouter(prefix="/api/portal", tags=["portal"])
@@ -94,6 +94,7 @@ def edit_price(token: str, price_id: int, body: PriceEdit, db: Session = Depends
     price.source_type = "upload"        # подтверждено клиникой → приоритет над автосбором
     price.match_confidence = 1.0
     price.valid_from = date.today()
+    record_price_history(db, clinic.id, price.service_id, body.price)
     db.commit()
     return {"ok": True, "price_id": price_id, "price": body.price}
 

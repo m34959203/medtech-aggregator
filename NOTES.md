@@ -118,3 +118,12 @@ Self-service портал — мостик «автосбор → партнёр
 - **Бэкенд** `routers/portal.py`: `POST /api/portal/issue/{clinic_id}` (админ выдаёт токен+ссылку), `GET /api/portal/{token}` (клиника видит свои цены), `PATCH /api/portal/{token}/price/{id}` (правка → source_type=upload, conf=1.0 → автосбор не перетирает), `POST /api/portal/{token}/confirm-all`, `POST /api/portal/{token}/upload` (свой прайс через ingest_items). Чужие цены/битый токен → 404.
 - **Фронт**: `/clinic/[token]` (useParams) — таблица цен с инлайн-правкой, «подтвердить все», загрузка своего прайса, бейджи подтверждено/из автосбора; в `/admin` карточка `PortalIssueCard` (id клиники → ссылка). 6 тестов `test_portal.py`.
 Осталось в Спринте-3 (тяжёлое/внешнее, следующие заходы): история цен+тренды, pgvector+онтология (нужен Postgres+эмбеддинги), ОСМС/ДМС, OCR сканов. Мерж в main только после сдачи 26–28.06.
+
+## Чек-поинт 2026-06-18 (#5) — Спринт-3: история цен + тренды (ветка feat/product-evolution)
+56 pytest, tsc+next build чисты. Прод на main не тронут.
+- **Модель** `PriceHistory` (clinic/service/price/recorded_at). Авто-создаётся через create_all при деплое (в отличие от access_token-колонки — новые ТАБЛИЦЫ create_all делает, КОЛОНКИ нет).
+- **Захват**: `record_price_history(db,...)` в `service.py` — пишет ТОЛЬКО при изменении цены (дедуп по последней). Вызывается в `ingest_items` (create + update-on-change) и в портале `edit_price`.
+- **Тренд**: `_price_trend` в aggregator — медиана по дням, change_pct, direction (up/down/flat), нужно ≥2 дат. Проброшен в `ServiceComparison.price_trend` (только в /compare) + отдельный `GET /api/services/{id}/history`.
+- **Фронт**: `PriceTrendBlock` в `ComparisonView` — SVG-спарклайн + «цена выросла/снизилась на N%» (красный/зелёный/серый). Скрыт, если истории <2 точек.
+- 3 теста (дедуп истории, тренд-эндпоинт). **NB:** в текущем демо история односессионная → тренд не виден (честно); накапливается при повторных скрейпах. Опция для демо — синтетический бэкфилл истории (не делаю без явного запроса).
+Осталось в Спринте-3: pgvector+онтология (нужен Postgres+эмбеддинги), ОСМС/ДМС, OCR сканов. Мерж в main только после сдачи.

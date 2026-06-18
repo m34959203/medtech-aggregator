@@ -36,6 +36,12 @@ export interface ServiceAttributes {
   tags?: string[];
 }
 
+export interface PriceTrend {
+  points: { date: string; median: number }[];
+  change_pct: number;
+  direction: "up" | "down" | "flat";
+}
+
 export interface ServiceComparison {
   service_id: number;
   canonical_name: string;
@@ -46,6 +52,7 @@ export interface ServiceComparison {
   offers: PriceOffer[];
   attributes?: ServiceAttributes;
   variants?: ServiceVariant[];
+  price_trend?: PriceTrend | null;
 }
 
 export interface ClinicOut {

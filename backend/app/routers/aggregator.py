@@ -1,16 +1,45 @@
 """Агрегатор (Кейс 2): поиск и сравнение цен по нормализованному справочнику."""
 from __future__ import annotations
 
+from statistics import median
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..ingestion import variants
-from ..models import Clinic, Price, ServiceCatalog
+from ..models import Clinic, Price, PriceHistory, ServiceCatalog
 from ..schemas import PriceOffer, ServiceComparison, ServiceOut, ServiceVariant
 
 router = APIRouter(prefix="/api", tags=["aggregator"])
+
+
+def _price_trend(db: Session, service_id: int) -> dict | None:
+    """Динамика медианной цены по дням из истории. None, если точек < 2."""
+    rows = (
+        db.query(PriceHistory.recorded_at, PriceHistory.price)
+        .filter(PriceHistory.service_id == service_id)
+        .all()
+    )
+    if not rows:
+        return None
+    by_date: dict = {}
+    for d, p in rows:
+        by_date.setdefault(d, []).append(float(p))
+    points = [
+        {"date": d.isoformat(), "median": round(median(v), 2)}
+        for d, v in sorted(by_date.items())
+    ]
+    if len(points) < 2:
+        return None
+    first, last = points[0]["median"], points[-1]["median"]
+    change = round((last - first) / first * 100, 1) if first else 0.0
+    return {
+        "points": points,
+        "change_pct": change,
+        "direction": "up" if change > 1 else "down" if change < -1 else "flat",
+    }
 
 
 def _variants_of(db: Session, service: ServiceCatalog) -> list[ServiceVariant]:
@@ -115,6 +144,7 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
         offers=offers,
         attributes=variants.attributes(service.canonical_name),
         variants=_variants_of(db, service) if with_variants else [],
+        price_trend=_price_trend(db, service.id) if with_variants else None,
     )
 
 
@@ -130,6 +160,16 @@ def compare(
     if not service:
         raise HTTPException(404, "Услуга не найдена")
     return _build_comparison(db, service, city, max_price, sort, with_variants=True)
+
+
+@router.get("/services/{service_id}/history")
+def service_history(service_id: int, db: Session = Depends(get_db)):
+    """История/тренд медианной цены услуги — уникальный контент и SEO-магнит."""
+    svc = db.get(ServiceCatalog, service_id)
+    if not svc:
+        raise HTTPException(404, "Услуга не найдена")
+    return {"service_id": svc.id, "canonical_name": svc.canonical_name,
+            "trend": _price_trend(db, svc.id)}
 
 
 @router.get("/search", response_model=list[ServiceComparison])
