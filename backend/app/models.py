@@ -97,6 +97,26 @@ class PriceReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class Lead(Base):
+    """Заявка на приём/услугу — лид для клиники (Спринт-2, монетизация).
+
+    Пациент оставляет заявку с карточки → лид уходит клинике. Закрывает воронку
+    и даёт бизнес-модель (оплата за лиды).
+    """
+
+    __tablename__ = "leads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True)
+    clinic_name: Mapped[str] = mapped_column(Text, default="")
+    service: Mapped[str] = mapped_column(Text, default="")
+    price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    name: Mapped[str] = mapped_column(Text, default="")
+    phone: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="new")  # new / contacted / closed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Price(Base):
     """Цена услуги в конкретной клинике — результат нормализации."""
 

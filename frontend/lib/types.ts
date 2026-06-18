@@ -114,6 +114,35 @@ export interface BatchResult {
   totals: { files: number; ok: number; items: number; matched: number; needs_review: number };
 }
 
+// --- Спринт-2: ревью (human-in-the-loop) ---
+export interface ReviewItem {
+  price_id: number;
+  clinic_id: number;
+  clinic_name: string;
+  city: string;
+  service_id: number;
+  canonical_name: string;
+  raw_name: string;
+  price: number;
+  currency: string;
+  match_confidence: number;
+}
+
+export interface ReviewReport {
+  id: number;
+  clinic_name: string;
+  service: string;
+  price: number | null;
+  note: string;
+  created_at: string;
+}
+
+export interface ReviewQueue {
+  threshold: number;
+  low_confidence: ReviewItem[];
+  reports: ReviewReport[];
+}
+
 // --- Чат-помощник ---
 export interface ChatMessage {
   role: "user" | "assistant";

@@ -100,6 +100,12 @@ export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
   return apiFetch<ClinicOut[]>("/api/clinics", { signal });
 }
 
+export function getServices(
+  signal?: AbortSignal,
+): Promise<{ id: number; canonical_name: string; category: string }[]> {
+  return apiFetch("/api/services?limit=200", { signal });
+}
+
 export function previewNormalization(
   names: string[],
   signal?: AbortSignal,
@@ -131,6 +137,48 @@ export function uploadBatch(files: File[], clinicId?: number): Promise<BatchResu
 // Прямая ссылка на скачивание (same-origin: /api проксируется Next-ом на бэкенд).
 export function catalogExportUrl(format: "xlsx" | "csv"): string {
   return `/api/export/catalog?format=${format}`;
+}
+
+// --- Спринт-2: ревью и лиды ---
+import type { ReviewQueue } from "./types";
+
+export function getReviewQueue(signal?: AbortSignal): Promise<ReviewQueue> {
+  return apiFetch<ReviewQueue>("/api/review/queue", { signal });
+}
+
+export function reviewPrice(
+  priceId: number,
+  action: "confirm" | "reassign" | "reject",
+  targetServiceId?: number,
+): Promise<unknown> {
+  return apiFetch(`/api/review/price/${priceId}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ action, target_service_id: targetServiceId }),
+  });
+}
+
+export function reviewReport(reportId: number, status: "reviewed" | "fixed"): Promise<unknown> {
+  return apiFetch(`/api/review/report/${reportId}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function createLead(lead: {
+  clinic_id?: number;
+  clinic_name?: string;
+  service?: string;
+  price?: number;
+  name?: string;
+  phone?: string;
+}): Promise<unknown> {
+  return apiFetch("/api/leads", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(lead),
+  });
 }
 
 // --- Петля обратной связи «цена неверная» ---

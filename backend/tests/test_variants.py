@@ -37,3 +37,20 @@ def test_attributes_tolerance_variant():
 def test_variant_label_human_readable():
     assert variant_label("Глюкоза в моче")  # не пусто
     assert "моча" in variant_label("Глюкоза в моче")
+
+
+# --- Геокодинг (Спринт-2): построение запроса без сети ---
+from app.ingestion.geocode import build_query, is_geocodable  # noqa: E402
+
+
+def test_geocode_build_query_skips_placeholders():
+    assert build_query("ул. Абая, 1", "Алматы") == "ул. Абая, 1, Алматы, Казахстан"
+    assert build_query("сеть лабораторий", "Алматы") == "Алматы, Казахстан"
+    assert build_query("г. Астана", "Астана") == "Астана, Казахстан"
+
+
+def test_is_geocodable_requires_street_number():
+    assert is_geocodable("пр. Бухар-Жырау, 61")
+    assert not is_geocodable("сеть лабораторий")
+    assert not is_geocodable("г. Астана")
+    assert not is_geocodable("")

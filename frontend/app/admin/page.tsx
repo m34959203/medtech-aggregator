@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
@@ -45,6 +46,12 @@ export default function AdminPage() {
           Пакетная обработка архива прайсов клиник, экспорт единого каталога и
           журнал всех прогонов нормализации.
         </p>
+        <Link
+          href="/admin/review"
+          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline"
+        >
+          → Очередь на проверку (спорные сопоставления и жалобы)
+        </Link>
       </header>
 
       {error && (

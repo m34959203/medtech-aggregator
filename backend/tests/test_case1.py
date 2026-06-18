@@ -144,3 +144,34 @@ def test_price_report_feedback_loop(client):
     assert r.json()["status"] == "new"
     lst = client.get("/api/feedback/price-reports?status=new").json()
     assert any(x["clinic_name"] == "Клиника А" for x in lst)
+
+
+def test_lead_create_and_validation(client):
+    bad = client.post("/api/leads", json={"clinic_id": 1, "phone": "123"})
+    assert bad.status_code == 422  # короткий телефон
+    ok = client.post("/api/leads", json={
+        "clinic_id": 1, "clinic_name": "Клиника А", "service": "ОАК",
+        "price": 2400, "name": "Иван", "phone": "+7 701 234 56 78",
+    })
+    assert ok.status_code == 200 and ok.json()["status"] == "new"
+    assert any(l["name"] == "Иван" for l in client.get("/api/leads?status=new").json())
+
+
+def test_review_queue_and_confirm(client):
+    # «чужая» позиция → новая услуга с низкой уверенностью → попадает в очередь
+    client.post("/api/ingest/upload-batch", data={"clinic_id": "1"},
+                files=[("files", ("p.csv", _csv("Криоконсервация эмбрионов;90000\n"), "text/csv"))])
+    q = client.get("/api/review/queue").json()
+    assert q["low_confidence"], "низко-уверенная позиция должна быть в очереди"
+    pid = q["low_confidence"][0]["price_id"]
+    r = client.post(f"/api/review/price/{pid}", json={"action": "confirm"})
+    assert r.status_code == 200
+    # после подтверждения уверенность 1.0 → вышла из очереди
+    assert all(it["price_id"] != pid for it in client.get("/api/review/queue").json()["low_confidence"])
+
+
+def test_review_report_status(client):
+    client.post("/api/feedback/price-report", json={"clinic_name": "К", "service": "ОАК"})
+    rid = client.get("/api/review/queue").json()["reports"][0]["id"]
+    assert client.post(f"/api/review/report/{rid}", json={"status": "fixed"}).status_code == 200
+    assert not client.get("/api/review/queue").json()["reports"]  # ушла из очереди

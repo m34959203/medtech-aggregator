@@ -103,3 +103,11 @@
 - **Мониторинг скраперов** — `/api/ingest/stats` + `empty_runs`/`failed_runs`/`reports_new`; в `/admin` баннер `HealthBanner` (зелёный «здоров» / янтарный список проблем).
 Осталось (Спринт-2, после хакатона/при пилоте): needs_review UI, реальная геолокация, лид/запись. Спринт-3: портал клиник, pgvector+онтология, история цен, ОСМС.
 Мерж в main — ТОЛЬКО после сдачи 26–28.06.
+
+## Чек-поинт 2026-06-18 (#3) — Спринт-2 (ветка feat/product-evolution)
+needs_review UI + лиды + геокодинг. 47 pytest (offline — conftest глушит LLM), tsc+next build чисты. Прод на main не тронут.
+- **needs_review UI**: `routers/review.py` (`GET /api/review/queue` — низкая уверенность + новые жалобы; `POST /api/review/price/{id}` confirm/reassign/reject; `POST /api/review/report/{id}`); фронт `/admin/review` (подтвердить/переназначить через select услуг/удалить; жалобы → «обработано»). Ссылка из `/admin`.
+- **Лиды/запись** (монетизация): модель `Lead`, `routers/leads.py` (POST с валидацией телефона ≥10 цифр, GET список), компонент `LeadButton` на карточке (инлайн-форма имя+телефон, stopPropagation).
+- **Геолокация**: `app/ingestion/geocode.py` (Nominatim, без ключа; `build_query` игнорит заглушки, `is_geocodable` требует номер дома) + скрипт `backfill_geocode.py` (лимит 1 req/сек, `--all`). Живой прогон — вручную (сетевой), логика покрыта тестами.
+- **Гоча тестов**: добавлен autouse-фикстура в `tests/conftest.py` — глушит LLM (`json_completion`→None + пустые ключи), иначе локально с ключом нормализатор ходил в сеть и давал новым услугам conf=1.0 (флаки + 8с→1с).
+Спринт-2 закрыт. Спринт-3 (портал клиник, pgvector+онтология, история цен, ОСМС) — следующий, gated на пилот. Мерж в main только после сдачи.
