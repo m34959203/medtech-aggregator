@@ -30,24 +30,41 @@ function loadYmaps(): Promise<any> {
 interface Props {
   offers: PriceOffer[];
   cheapestClinicId?: number;
+  // Клиника, выбранная в списке карточек: на неё центрируемся и открываем балун.
+  activeClinicId?: number;
+  // Обратная связь: клик по метке выделяет карточку в списке.
+  onSelectClinic?: (clinicId: number) => void;
 }
 
-export default function ClinicMap({ offers, cheapestClinicId }: Props) {
+export default function ClinicMap({
+  offers,
+  cheapestClinicId,
+  activeClinicId,
+  onSelectClinic,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<any>(null);
+  // clinic_id -> placemark, чтобы открывать балун без пересборки карты.
+  const placemarksRef = useRef<Map<number, any>>(new Map());
+  // Держим актуальный колбэк, не пересобирая карту при его изменении.
+  const onSelectRef = useRef(onSelectClinic);
+  onSelectRef.current = onSelectClinic;
+
   const points = offers.filter(
     (o): o is PriceOffer & { lat: number; lng: number } =>
       o.lat != null && o.lng != null,
   );
 
+  // Сборка карты и меток — зависит только от данных.
   useEffect(() => {
     if (!API_KEY || points.length === 0) return;
-    let map: any;
     let cancelled = false;
+    placemarksRef.current = new Map();
 
     loadYmaps()
       .then((ymaps) => {
         if (cancelled || !containerRef.current) return;
-        map = new ymaps.Map(
+        const map = new ymaps.Map(
           containerRef.current,
           {
             center: [points[0].lat, points[0].lng],
@@ -56,6 +73,7 @@ export default function ClinicMap({ offers, cheapestClinicId }: Props) {
           },
           { suppressMapOpenBlock: true },
         );
+        mapRef.current = map;
 
         const coords: number[][] = [];
         for (const p of points) {
@@ -80,7 +98,13 @@ export default function ClinicMap({ offers, cheapestClinicId }: Props) {
               iconColor: isCheapest ? "#059473" : "#64748b",
             },
           );
+          // Клик по метке выделяет соответствующую карточку в списке.
+          placemark.events.add("click", () => onSelectRef.current?.(p.clinic_id));
           map.geoObjects.add(placemark);
+          // Первая метка для клиники — её и открываем при выборе карточки.
+          if (!placemarksRef.current.has(p.clinic_id)) {
+            placemarksRef.current.set(p.clinic_id, placemark);
+          }
           coords.push([p.lat, p.lng]);
         }
 
@@ -99,9 +123,24 @@ export default function ClinicMap({ offers, cheapestClinicId }: Props) {
 
     return () => {
       cancelled = true;
-      if (map) map.destroy();
+      if (mapRef.current) {
+        mapRef.current.destroy();
+        mapRef.current = null;
+      }
+      placemarksRef.current = new Map();
     };
   }, [offers, cheapestClinicId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Реакция на выбор карточки: плавно центрируемся и открываем балун клиники.
+  useEffect(() => {
+    if (activeClinicId == null) return;
+    const map = mapRef.current;
+    const placemark = placemarksRef.current.get(activeClinicId);
+    if (!map || !placemark) return;
+    const coords = placemark.geometry.getCoordinates();
+    map.panTo(coords, { flying: true, duration: 350 });
+    placemark.balloon.open();
+  }, [activeClinicId]);
 
   if (!API_KEY) {
     return (

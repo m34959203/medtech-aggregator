@@ -38,6 +38,8 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Клиника, выбранная кликом по карточке (или метке) — для синхронизации с картой.
+  const [activeClinicId, setActiveClinicId] = useState<number | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const firstRun = useRef(true);
 
@@ -146,6 +148,8 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
                   key={`${o.clinic_id}-${i}`}
                   offer={o}
                   isCheapest={cheapest?.clinic_id === o.clinic_id && i === 0}
+                  isActive={activeClinicId === o.clinic_id}
+                  onSelect={() => setActiveClinicId(o.clinic_id)}
                 />
               ))}
             </ul>
@@ -161,7 +165,12 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         <div className="lg:col-span-5">
           <div className="card sticky top-20 overflow-hidden p-1.5">
             <div className="h-[420px] w-full overflow-hidden rounded-xl">
-              <ClinicMap offers={offers} cheapestClinicId={cheapest?.clinic_id} />
+              <ClinicMap
+                offers={offers}
+                cheapestClinicId={cheapest?.clinic_id}
+                activeClinicId={activeClinicId}
+                onSelectClinic={setActiveClinicId}
+              />
             </div>
           </div>
         </div>
@@ -259,15 +268,50 @@ function Filters(p: FiltersProps) {
 function OfferRow({
   offer,
   isCheapest,
+  isActive,
+  onSelect,
 }: {
   offer: import("@/lib/types").PriceOffer;
   isCheapest: boolean;
+  isActive: boolean;
+  onSelect: () => void;
 }) {
   const confidence = Math.round(offer.match_confidence * 100);
+  const liRef = useRef<HTMLLIElement>(null);
+  const hasGeo = offer.lat != null && offer.lng != null;
+
+  // Когда клиника выбрана на карте — подтягиваем её карточку в зону видимости.
+  useEffect(() => {
+    if (isActive && liRef.current) {
+      liRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [isActive]);
+
   return (
     <li
-      className={`card p-4 sm:p-5 ${
-        isCheapest ? "ring-2 ring-brand-300" : ""
+      ref={liRef}
+      onClick={hasGeo ? onSelect : undefined}
+      role={hasGeo ? "button" : undefined}
+      tabIndex={hasGeo ? 0 : undefined}
+      onKeyDown={
+        hasGeo
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+      title={hasGeo ? "Показать на карте" : undefined}
+      className={`card p-4 transition sm:p-5 ${
+        hasGeo ? "cursor-pointer hover:border-brand-300" : ""
+      } ${
+        isActive
+          ? "ring-2 ring-brand-500"
+          : isCheapest
+            ? "ring-2 ring-brand-300"
+            : ""
       }`}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
