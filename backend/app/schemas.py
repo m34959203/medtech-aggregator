@@ -55,6 +55,15 @@ class PriceOffer(BaseModel):
     valid_from: date
 
 
+class ServiceVariant(BaseModel):
+    """Другой вариант той же базовой услуги (для перелинковки на витрине)."""
+    service_id: int
+    canonical_name: str
+    label: str
+    offers_count: int
+    min_price: float
+
+
 class ServiceComparison(BaseModel):
     service_id: int
     canonical_name: str
@@ -63,6 +72,9 @@ class ServiceComparison(BaseModel):
     min_price: float
     max_price: float
     offers: list[PriceOffer]
+    # Модель «база + атрибуты варианта»: теги сопоставимости + сёстры-варианты
+    attributes: dict = {}
+    variants: list[ServiceVariant] = []
 
 
 class IngestionRunOut(BaseModel):

@@ -6,10 +6,29 @@ from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..ingestion import variants
 from ..models import Clinic, Price, ServiceCatalog
-from ..schemas import PriceOffer, ServiceComparison, ServiceOut
+from ..schemas import PriceOffer, ServiceComparison, ServiceOut, ServiceVariant
 
 router = APIRouter(prefix="/api", tags=["aggregator"])
+
+
+def _variants_of(db: Session, service: ServiceCatalog) -> list[ServiceVariant]:
+    """Другие варианты той же базовой услуги (с ценами) — для перелинковки."""
+    bk = variants.base_key(service.canonical_name)
+    out: list[ServiceVariant] = []
+    for s in db.query(ServiceCatalog).all():
+        if s.id == service.id or variants.base_key(s.canonical_name) != bk:
+            continue
+        prices = [float(p[0]) for p in db.query(Price.price).filter(Price.service_id == s.id).all()]
+        if not prices:
+            continue
+        out.append(ServiceVariant(
+            service_id=s.id, canonical_name=s.canonical_name,
+            label=variants.variant_label(s.canonical_name),
+            offers_count=len(prices), min_price=min(prices),
+        ))
+    return sorted(out, key=lambda v: v.min_price)
 
 
 def _matches(svc: ServiceCatalog, q: str) -> bool:
@@ -50,7 +69,8 @@ def list_services(
     return items[:limit]
 
 
-def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sort) -> ServiceComparison:
+def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sort,
+                      with_variants: bool = False) -> ServiceComparison:
     q = (
         db.query(Price, Clinic)
         .join(Clinic, Price.clinic_id == Clinic.id)
@@ -93,6 +113,8 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
         min_price=min(prices),
         max_price=max(prices),
         offers=offers,
+        attributes=variants.attributes(service.canonical_name),
+        variants=_variants_of(db, service) if with_variants else [],
     )
 
 
@@ -107,7 +129,7 @@ def compare(
     service = db.get(ServiceCatalog, service_id)
     if not service:
         raise HTTPException(404, "Услуга не найдена")
-    return _build_comparison(db, service, city, max_price, sort)
+    return _build_comparison(db, service, city, max_price, sort, with_variants=True)
 
 
 @router.get("/search", response_model=list[ServiceComparison])
