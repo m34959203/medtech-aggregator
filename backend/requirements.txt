@@ -13,6 +13,9 @@ pytesseract==0.3.13
 Pillow==11.0.0
 pymupdf==1.24.14
 rapidfuzz==3.11.0
+# Семантическая нормализация (эмбеддинги, ONNX — без torch). pgvector — на стороне БД.
+fastembed==0.8.0
+numpy==2.2.1
 httpx==0.28.1
 beautifulsoup4==4.12.3
 groq==0.13.1

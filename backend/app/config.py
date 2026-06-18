@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     # Rate-limiting публичных POST (анти-абуз). In-memory per-IP; Redis — на масштаб.
     rate_limit_enabled: bool = True
 
+    # Семантическая нормализация (эмбеддинги + pgvector). Понимает смысл, а не буквы:
+    # «кровь на сахар» → «Глюкоза». На Postgres — pgvector; иначе in-process. Если
+    # модель/пакет недоступны — слой тихо отключается (нормализатор остаётся на fuzzy).
+    semantic_enabled: bool = True
+    semantic_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    semantic_threshold: float = 0.72  # минимальная косинусная близость для принятия
+
     # Чат-помощник. Провайдер OpenAI-совместимый: "alem" (AlemLLM, KZ) или "groq".
     # По умолчанию авто: если задан alem_api_key — alem, иначе groq.
     llm_provider: str = "auto"  # auto / alem / groq

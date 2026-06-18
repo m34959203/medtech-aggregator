@@ -23,6 +23,8 @@ def _no_llm_in_tests(monkeypatch):
     monkeypatch.setattr("app.config.settings.alem_api_key", "", raising=False)
     # Rate-limit по умолчанию выключен в тестах (тест лимита включает явно).
     monkeypatch.setattr("app.config.settings.rate_limit_enabled", False, raising=False)
+    # Семантика по умолчанию выключена в тестах (не грузим модель); тест включает явно.
+    monkeypatch.setattr("app.config.settings.semantic_enabled", False, raising=False)
 
 
 @pytest.fixture(autouse=True)

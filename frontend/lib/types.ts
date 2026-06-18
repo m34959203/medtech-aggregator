@@ -74,7 +74,7 @@ export interface ClinicOut {
 }
 
 // --- Live-демо нормализатора ---
-export type NormMethod = "fuzzy" | "fuzzy-weak" | "llm" | "new";
+export type NormMethod = "fuzzy" | "fuzzy-weak" | "semantic" | "llm" | "new";
 
 export interface NormalizationPreview {
   raw: string;

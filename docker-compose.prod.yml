@@ -10,7 +10,7 @@
 
 services:
   medtech-db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: medtech-db
     restart: unless-stopped
     environment:

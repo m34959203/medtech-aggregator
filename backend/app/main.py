@@ -10,7 +10,8 @@ from fastapi import Depends
 
 from .auth import require_admin
 from .routers import (
-    aggregator, auth, basket, chat, clinics, export, feedback, ingestion, leads, portal, review,
+    aggregator, auth, basket, chat, clinics, export, feedback, ingestion, leads, portal,
+    review, semantic,
 )
 
 app = FastAPI(
@@ -47,3 +48,4 @@ app.include_router(review.router, dependencies=[Depends(require_admin)])
 app.include_router(portal.router)
 app.include_router(basket.router)
 app.include_router(auth.router)
+app.include_router(semantic.router)

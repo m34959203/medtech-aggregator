@@ -13,6 +13,11 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Предзагрузка эмбеддинг-модели в образ — иначе первый семантический запрос
+# тратит ~30с на скачивание. Кэш остаётся в слое образа.
+RUN python -c "from fastembed import TextEmbedding; \
+    TextEmbedding(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
+
 COPY . .
 
 # SQLite-файл и загрузки живут в /data (volume), чтобы переживать пересборку.

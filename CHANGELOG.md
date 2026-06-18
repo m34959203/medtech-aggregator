@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Added
+- **Семантическая нормализация (pgvector)**: эмбеддинги услуг (fastembed, multilingual), поиск по смыслу («кровь на сахар»→«Глюкоза»); на Postgres — pgvector `<=>`, иначе in-process; тир в нормализаторе + `/api/semantic/*`; грациозная деградация.
 - **Postgres как прод-рантайм**: `docker-compose.prod.yml` поднимает `medtech-db`; движок с `pool_pre_ping` и скромным пулом; скрипт переноса данных `copy_to_pg.py` (SQLite→PG).
 - **Rate-limit**: публичные POST (жалоба/лид/чат/корзина) и `auth/login` ограничены по IP (in-memory, `429` + `Retry-After`).
 - **Авторизация админ-зоны** (passwordless): `ADMIN_TOKEN` + httpOnly-cookie; закрыты `/admin`, ревью, экспорт, приём данных, выдача порталов; вход по magic-link `?key=`. Fail-closed при незаданном токене.
