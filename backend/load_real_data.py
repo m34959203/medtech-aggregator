@@ -122,14 +122,14 @@ CLINICS = [
     ("INVITRO Астана", "Астана", "Есильский", "пр. Кабанбай батыра, 11",
      51.1280, 71.4300, "+7 7172 76 09 09",
      "https://invitro.kz/analizes/for-doctors/astana/", "lab"),
-    ("Лаборатория Gemotest Алматы", "Алматы", "Алмалинский", "сеть лабораторий (Алматы)",
+    ("Лаборатория Gemotest Алматы", "Алматы", "Алмалинский", "пр. Сейфуллина, 565",
      43.2480, 76.9300, "8 800 070 13 13",
      "https://gemotest.kz/almaty/catalog/", "lab"),
-    ("Лаборатория Gemotest Астана", "Астана", "Есильский", "сеть лабораторий (Астана)",
+    ("Лаборатория Gemotest Астана", "Астана", "Есильский", "пр. Республики, 39",
      51.1450, 71.4200, "8 800 070 13 13",
      "https://gemotest.kz/astana/catalog/", "lab"),
-    ("INVITRO Караганда", "Караганда", "", "сеть лабораторий (Караганда)",
-     49.8060, 73.0850, "+7 7212 50 09 09",
+    ("INVITRO Караганда", "Караганда", "Казыбекбийский", "пр. Бухар-Жырау, 61",
+     49.8047, 73.0876, "+7 7212 43 51 41",
      "https://invitro.kz/analizes/for-doctors/karaganda/", "lab"),
     # — Клиники (платформа 103.kz, универсальный адаптер) —
     ("Клиника Emirmed", "Алматы", "Бостандыкский", "сеть клиник (Алматы)",
@@ -240,6 +240,15 @@ LAB_PLATFORM = [
     ("Лаборатория SAPA Астана", "Астана", "https://sapalab.com", "astana"),
     ("Лаборатория SAPA Шымкент", "Шымкент", "https://sapalab.com", "shymkent"),
 ]
+
+# Реальные адреса центральных филиалов лабораторных сетей — фолбэк, когда
+# сессионный скрейп контактов не отдаёт адрес (иначе была заглушка «сеть лабораторий»).
+# (district, address, phone)
+LAB_FALLBACK_CONTACT = {
+    "Лаборатория SAPA Алматы": ("Алмалинский", "ул. Шагабутдинова, 169", "+7 727 292 52 62"),
+    "Лаборатория SAPA Астана": ("Сарыаркинский", "ул. Каныша Сатпаева, 23/1", "+7 7172 25 40 96"),
+    "Лаборатория SAPA Шымкент": ("Аль-Фарабийский", "ул. Байтурсынова, 4", "+7 700 750 50 07"),
+}
 
 
 def _build_clinics():
@@ -359,13 +368,18 @@ def main(reset: bool = True):
             plat_idx += 1
             # реальные контакты с сайта сети (INVIVO даёт адрес+geo, SAPA — телефон)
             address, phone = "сеть лабораторий", ""
+            district = ""
             contact = fetch_contact(f"{base}/ru/{city_slug}/")
             if contact:
                 phone = contact.get("phone") or ""
                 address = contact.get("address") or address
                 if contact.get("lat") and contact.get("lng"):
                     lat, lng = contact["lat"], contact["lng"]
-            load(name, city, lat, lng, items, address=address, phone=phone)
+            # Фолбэк на реальный центральный филиал, если адрес не подтянулся.
+            if address == "сеть лабораторий" and name in LAB_FALLBACK_CONTACT:
+                district, address, fb_phone = LAB_FALLBACK_CONTACT[name]
+                phone = phone or fb_phone
+            load(name, city, lat, lng, items, district=district, address=address, phone=phone)
 
         n_cat = db.query(ServiceCatalog).count()
         n_price = db.query(Price).count()
