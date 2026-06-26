@@ -221,12 +221,14 @@ def test_glucose_tolerance_is_separate(db):
 
 def test_price_history_records_only_on_change(db):
     """История пишется только при ИЗМЕНЕНИИ цены (дедуп по последней)."""
+    import uuid as _uuid
     from app.ingestion.service import record_price_history
     from app.models import PriceHistory
+    cid = _uuid.uuid4()
     oak = db.query(ServiceCatalog).filter(ServiceCatalog.canonical_name == "Общий анализ крови").first()
-    record_price_history(db, 1, oak.id, 2000.0)
-    record_price_history(db, 1, oak.id, 2000.0)  # та же цена — не пишем
-    record_price_history(db, 1, oak.id, 2500.0)  # изменилась — пишем
+    record_price_history(db, cid, oak.id, 2000.0)
+    record_price_history(db, cid, oak.id, 2000.0)  # та же цена — не пишем
+    record_price_history(db, cid, oak.id, 2500.0)  # изменилась — пишем
     db.commit()
-    rows = db.query(PriceHistory).filter(PriceHistory.clinic_id == 1).all()
+    rows = db.query(PriceHistory).filter(PriceHistory.clinic_id == cid).all()
     assert [float(r.price) for r in rows] == [2000.0, 2500.0]

@@ -19,7 +19,7 @@ const ClinicMap = dynamic(() => import("./ClinicMap"), {
 });
 
 interface Props {
-  serviceId: number;
+  serviceId: string; // uuid услуги (§2.2)
   initial: ServiceComparison;
   cities: string[];
   initialCity?: string;
@@ -45,7 +45,7 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Клиника, выбранная кликом по карточке (или метке) — для синхронизации с картой.
-  const [activeClinicId, setActiveClinicId] = useState<number | undefined>(undefined);
+  const [activeClinicId, setActiveClinicId] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const firstRun = useRef(true);
 
@@ -413,7 +413,7 @@ function PriceTrendBlock({ trend }: { trend?: PriceTrend | null }) {
 
 function VariantsBar({ variants, city }: { variants?: ServiceVariant[]; city: string }) {
   if (!variants || variants.length === 0) return null;
-  const href = (id: number) =>
+  const href = (id: string) =>
     city ? `/service/${id}?city=${encodeURIComponent(city)}` : `/service/${id}`;
   return (
     <div className="rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3">

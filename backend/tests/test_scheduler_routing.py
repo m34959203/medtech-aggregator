@@ -36,10 +36,13 @@ def db(monkeypatch):
     s = Session()
     s.add(ServiceCatalog(canonical_name="3D УЗИ плода", category="диагностика", synonyms=[]))
     s.add(ServiceCatalog(canonical_name="Общий анализ крови", category="лаборатория", synonyms=["ОАК"]))
-    s.add(Clinic(id=1, name="Doq-клиника", city="Алматы"))
-    s.add(Clinic(id=2, name="Web-клиника", city="Астана"))
-    s.add(Source(id=10, clinic_id=1, type="api", url_or_endpoint="doq://3/105", enabled=True))
-    s.add(Source(id=11, clinic_id=2, type="web_scrape",
+    doq_cl = Clinic(name="Doq-клиника", city="Алматы")
+    web_cl = Clinic(name="Web-клиника", city="Астана")
+    s.add(doq_cl)
+    s.add(web_cl)
+    s.flush()
+    s.add(Source(id=10, clinic_id=doq_cl.id, type="api", url_or_endpoint="doq://3/105", enabled=True))
+    s.add(Source(id=11, clinic_id=web_cl.id, type="web_scrape",
                  url_or_endpoint="https://lab.103.kz/pricing/", enabled=True))
     s.commit(); s.close()
     return Session

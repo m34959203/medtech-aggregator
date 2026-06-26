@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import uuid
+
 import secrets
 from datetime import date
 
@@ -39,7 +41,7 @@ def ensure_token(db: Session, clinic: Clinic) -> str:
 
 
 @router.post("/issue/{clinic_id}", dependencies=[Depends(require_admin)])
-def issue_access(clinic_id: int, db: Session = Depends(get_db)):
+def issue_access(clinic_id: uuid.UUID, db: Session = Depends(get_db)):
     """Админ выдаёт клинике ссылку доступа (генерит токен при первом вызове)."""
     clinic = db.get(Clinic, clinic_id)
     if not clinic:

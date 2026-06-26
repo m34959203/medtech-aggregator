@@ -1,6 +1,8 @@
 """Агрегатор (Кейс 1 MedPrice): поиск и сравнение цен по нормализованному справочнику."""
 from __future__ import annotations
 
+import uuid
+
 from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 from statistics import median
@@ -28,7 +30,7 @@ def _haversine(lat1, lng1, lat2, lng2) -> float:
     return 2 * r * asin(sqrt(a))
 
 
-def _price_trend(db: Session, service_id: int) -> dict | None:
+def _price_trend(db: Session, service_id: uuid.UUID) -> dict | None:
     """Динамика медианной цены по дням из истории. None, если точек < 2."""
     rows = (
         db.query(PriceHistory.recorded_at, PriceHistory.price)
@@ -197,7 +199,8 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
                 valid_from=price.valid_from,
                 working_hours=clinic.working_hours or "",
                 website=clinic.website or "",
-                source_url=clinic.website or "",
+                # §2.2: реальный URL источника записи; фолбэк — сайт клиники
+                source_url=getattr(price, "source_url", "") or clinic.website or "",
                 rating=clinic.rating,
                 online_booking=clinic.online_booking,
                 duration_days=getattr(price, "duration_days", None),
@@ -236,7 +239,7 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
 
 @router.get("/compare/{service_id}", response_model=ServiceComparison)
 def compare(
-    service_id: int,
+    service_id: uuid.UUID,
     city: str | None = None,
     max_price: float | None = None,
     min_price: float | None = None,
@@ -292,7 +295,7 @@ def ontology_map(db: Session = Depends(get_db)):
 
 
 @router.get("/services/{service_id}/history")
-def service_history(service_id: int, db: Session = Depends(get_db)):
+def service_history(service_id: uuid.UUID, db: Session = Depends(get_db)):
     """История/тренд медианной цены услуги — уникальный контент и SEO-магнит."""
     svc = db.get(ServiceCatalog, service_id)
     if not svc:

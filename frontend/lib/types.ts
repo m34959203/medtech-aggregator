@@ -4,7 +4,7 @@ export type SourceType = "upload" | "web_scrape" | "api";
 export type SortOrder = "price_asc" | "price_desc" | "updated" | "distance";
 
 export interface PriceOffer {
-  clinic_id: number;
+  clinic_id: string; // uuid клиники (§2.2)
   clinic_name: string;
   city: string;
   district: string;
@@ -32,7 +32,7 @@ export interface PriceOffer {
 }
 
 export interface ServiceVariant {
-  service_id: number;
+  service_id: string; // uuid услуги (§2.2)
   canonical_name: string;
   label: string;
   offers_count: number;
@@ -62,7 +62,7 @@ export interface ServiceOntology {
 export type CategoryEnum = "лаборатория" | "приём врача" | "диагностика" | "процедура";
 
 export interface ServiceComparison {
-  service_id: number;
+  service_id: string; // uuid услуги (§2.2)
   canonical_name: string;
   category: string;
   category_enum?: CategoryEnum | string | null;
@@ -77,7 +77,7 @@ export interface ServiceComparison {
 }
 
 export interface ClinicOut {
-  id: number;
+  id: string; // uuid клиники (§2.2)
   name: string;
   city: string;
   district: string;
@@ -138,7 +138,7 @@ export interface IngestionStats {
 export interface BatchFileResult {
   file: string;
   status: "ok" | "empty" | "error";
-  clinic_id?: number;
+  clinic_id?: string; // uuid клиники (§2.2)
   format?: string;
   items?: number;
   matched?: number;
@@ -155,10 +155,10 @@ export interface BatchResult {
 // --- Спринт-2: ревью (human-in-the-loop) ---
 export interface ReviewItem {
   price_id: number;
-  clinic_id: number;
+  clinic_id: string; // uuid клиники (§2.2)
   clinic_name: string;
   city: string;
-  service_id: number;
+  service_id: string; // uuid услуги (§2.2)
   canonical_name: string;
   raw_name: string;
   price: number;
@@ -195,14 +195,14 @@ export interface PortalPrice {
 }
 
 export interface PortalView {
-  clinic: { id: number; name: string; city: string; district: string; address: string; phone: string };
+  clinic: { id: string; name: string; city: string; district: string; address: string; phone: string };
   prices: PortalPrice[];
   confirmed_count: number;
 }
 
 // --- Спринт-3: корзина-рецепт ---
 export interface BasketCheapest {
-  clinic_id: number;
+  clinic_id: string; // uuid клиники (§2.2)
   clinic_name: string;
   city: string;
   address: string;
@@ -212,7 +212,7 @@ export interface BasketCheapest {
 
 export interface BasketItem {
   input: string;
-  service_id: number;
+  service_id: string; // uuid услуги (§2.2)
   canonical: string;
   confidence: number;
   offers_count: number;
@@ -220,7 +220,7 @@ export interface BasketItem {
 }
 
 export interface BasketSingleClinic {
-  clinic_id: number;
+  clinic_id: string; // uuid клиники (§2.2)
   clinic_name: string;
   city: string;
   phone: string;
@@ -290,7 +290,7 @@ export interface ClinicProfileService {
 }
 
 export interface ClinicProfile {
-  id: number;
+  id: string; // uuid клиники (§2.2)
   name: string;
   city: string;
   address: string;

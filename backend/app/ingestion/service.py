@@ -56,6 +56,12 @@ def ingest_items(
     raw_content: str = "",
 ) -> IngestionResult:
     valid_from = valid_from or date.today()
+    # §2.2 source_url: URL/реф источника записи (из реестра Source) — прозрачность.
+    src_url = ""
+    if source_id:
+        _s = db.get(Source, source_id)
+        if _s:
+            src_url = _s.url_or_endpoint or ""
     run = IngestionRun(
         source_id=source_id,
         channel=channel,
@@ -117,6 +123,7 @@ def ingest_items(
                 existing.duration_days = data["duration_days"]
                 existing.price_original = data["price_original"]
                 existing.currency_original = data["currency_original"]
+                existing.source_url = src_url or existing.source_url
                 record_price_history(db, clinic_id, sid, data["price"])
             # иначе оставляем официальную загрузку клиники как есть
             continue
@@ -136,6 +143,7 @@ def ingest_items(
                 duration_days=data["duration_days"],
                 price_original=data["price_original"],
                 currency_original=data["currency_original"],
+                source_url=src_url,
             )
         )
         record_price_history(db, clinic_id, sid, data["price"])

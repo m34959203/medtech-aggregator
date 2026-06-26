@@ -14,7 +14,7 @@ import type { ReviewItem, ReviewQueue, ReviewReport } from "@/lib/types";
 
 export default function ReviewPage() {
   const [queue, setQueue] = useState<ReviewQueue | null>(null);
-  const [services, setServices] = useState<{ id: number; canonical_name: string }[]>([]);
+  const [services, setServices] = useState<{ id: string; canonical_name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -169,11 +169,11 @@ function ReviewRow({
   onDone,
 }: {
   item: ReviewItem;
-  services: { id: number; canonical_name: string }[];
+  services: { id: string; canonical_name: string }[];
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [target, setTarget] = useState<number>(item.service_id);
+  const [target, setTarget] = useState<string>(item.service_id);
 
   async function act(action: "confirm" | "reassign" | "reject") {
     if (busy) return;
@@ -213,7 +213,7 @@ function ReviewRow({
           </button>
           <select
             value={target}
-            onChange={(e) => setTarget(Number(e.target.value))}
+            onChange={(e) => setTarget(e.target.value)}
             className="field max-w-[12rem] py-1.5 text-xs"
             aria-label="Переназначить на услугу"
           >

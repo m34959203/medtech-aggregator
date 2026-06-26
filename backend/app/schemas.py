@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -5,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 class ClinicOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    id: int
+    id: uuid.UUID
     name: str
     city: str
     district: str
@@ -21,7 +22,7 @@ class ClinicOut(BaseModel):
 
 class ServiceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    id: int
+    id: uuid.UUID
     canonical_name: str
     category: str
     synonyms: list = []
@@ -30,8 +31,8 @@ class ServiceOut(BaseModel):
 class PriceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    clinic_id: int
-    service_id: int | None
+    clinic_id: uuid.UUID
+    service_id: uuid.UUID | None
     source_type: str
     raw_name: str
     price: float
@@ -43,7 +44,7 @@ class PriceOut(BaseModel):
 # --- Агрегатор: сравнение цен ---
 class PriceOffer(BaseModel):
     """Одно предложение услуги в конкретной клинике для витрины сравнения."""
-    clinic_id: int
+    clinic_id: uuid.UUID
     clinic_name: str
     city: str
     district: str
@@ -73,7 +74,7 @@ class PriceOffer(BaseModel):
 
 class ServiceVariant(BaseModel):
     """Другой вариант той же базовой услуги (для перелинковки на витрине)."""
-    service_id: int
+    service_id: uuid.UUID
     canonical_name: str
     label: str
     offers_count: int
@@ -81,7 +82,7 @@ class ServiceVariant(BaseModel):
 
 
 class ServiceComparison(BaseModel):
-    service_id: int
+    service_id: uuid.UUID
     canonical_name: str
     category: str
     category_enum: str = ""   # §2.2: лаборатория / приём врача / диагностика / процедура
@@ -112,7 +113,7 @@ class IngestionRunOut(BaseModel):
 
 class IngestionResult(BaseModel):
     run_id: int
-    clinic_id: int
+    clinic_id: uuid.UUID
     channel: str
     format: str
     items_found: int

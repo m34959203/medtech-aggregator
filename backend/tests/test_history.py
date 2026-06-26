@@ -21,14 +21,15 @@ def client():
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     s = Session()
     svc = ServiceCatalog(canonical_name="Общий анализ крови", category="Анализы", synonyms=["ОАК"])
-    s.add(svc); s.add(Clinic(id=1, name="К", city="Алматы")); s.flush()
+    cl = Clinic(name="К", city="Алматы")
+    s.add(svc); s.add(cl); s.flush()
     d0 = date.today() - timedelta(days=30)
     # две даты: было 2000/2200 (медиана 2100) → стало 2400/2600 (медиана 2500)
     s.add_all([
-        PriceHistory(clinic_id=1, service_id=svc.id, price=2000, recorded_at=d0),
-        PriceHistory(clinic_id=1, service_id=svc.id, price=2200, recorded_at=d0),
-        PriceHistory(clinic_id=1, service_id=svc.id, price=2400, recorded_at=date.today()),
-        PriceHistory(clinic_id=1, service_id=svc.id, price=2600, recorded_at=date.today()),
+        PriceHistory(clinic_id=cl.id, service_id=svc.id, price=2000, recorded_at=d0),
+        PriceHistory(clinic_id=cl.id, service_id=svc.id, price=2200, recorded_at=d0),
+        PriceHistory(clinic_id=cl.id, service_id=svc.id, price=2400, recorded_at=date.today()),
+        PriceHistory(clinic_id=cl.id, service_id=svc.id, price=2600, recorded_at=date.today()),
     ])
     s.commit(); sid = svc.id; s.close()
 
@@ -54,5 +55,6 @@ def test_history_endpoint_trend(client):
 
 def test_history_absent_when_one_point(client):
     # услуга без истории → trend None
-    other = client.get("/api/services/99999/history")
+    import uuid as _uuid
+    other = client.get(f"/api/services/{_uuid.uuid4()}/history")
     assert other.status_code == 404

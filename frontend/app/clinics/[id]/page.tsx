@@ -13,8 +13,9 @@ export default async function ClinicProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const clinicId = Number(id);
-  if (!Number.isFinite(clinicId)) notFound();
+  // clinic_id — uuid-строка из URL (§2.2), без приведения к числу.
+  const clinicId = id;
+  if (!clinicId) notFound();
 
   let profile: ClinicProfile;
   try {
