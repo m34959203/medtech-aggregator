@@ -25,6 +25,13 @@ _INSTRUCTION = re.compile(
 
 _DATE = re.compile(r"\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b")
 
+# Одиночное слово-заголовок (без двоеточия, не all-caps): «Направление», «Результаты».
+_HEADER_WORD = re.compile(
+    r"^(направлени|результат|исследовани|обследовани|заключени|назначени|"
+    r"бланк|форма|примечани)\w*$",
+    re.IGNORECASE,
+)
+
 # Маркеры того, что строка ВСЁ-ТАКИ про услугу (защита от ложного отсева).
 _SERVICE_HINT = re.compile(
     r"(анализ|кров|моч|узи|мрт|кт|рентген|при[её]м|консультац|гормон|витамин|"
@@ -41,6 +48,10 @@ def classify_line(raw: str) -> tuple[str, str]:
         return "noise", "пусто/слишком коротко"
 
     has_service = bool(_SERVICE_HINT.search(s))
+
+    # одиночное слово-заголовок («Направление», «Результаты») — не услуга
+    if _HEADER_WORD.match(s) and not has_service:
+        return "noise", "заголовок"
 
     # дата без услугового маркера
     if _DATE.search(s) and not has_service:
