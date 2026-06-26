@@ -83,6 +83,35 @@ endpoint деградирует в детерминированный поиск
 - `prices.service_id → service_catalog.id` — сравнение «одной и той же» услуги между клиниками.
 - `prices.source_type` — происхождение цены (доверие + дедуп).
 
+**Аддитивные поля MedArchive** (nullable — single-price путь MedPrice не ломается):
+`prices.price_resident/price_nonresident` (раздельные тарифы), `prices.service_code_source/tarificator_code`,
+`service_catalog.tarificator_code/specialty` (целевой справочник организаторов),
+`ingestion_runs.file_name/raw_content` (исходный документ для аудита). Миграция —
+`migrate._ensure_additive_columns()` (ALTER ADD COLUMN по месту, без новых Alembic-ревизий).
+
+## MedArchive — конвейер обработки архива (Кейс 2)
+
+Параллельный приёму MedPrice движок (`ingestion/archive_extractor.py` +
+`archive_service.py` + `refcatalog.py` + `semantic_backfill.py`, CLI `app/archive_ingest.py`):
+
+```
+архив(zip/папка) ─▶ детект формата ─▶ извлечение (резидент/нерезидент + код)
+   DOCX(tracked changes) / XLSX·XLS(многостр. шапка, все листы) / PDF(таблицы→слова)
+        │
+        ▼ валидации (цена>0, нерезидент≥резидент, аномалия>50%, версионирование)
+   нормализация match_archive(): код тарификатора(точно) → fuzzy → семантика(≥0.85)
+        │                                   │
+        ▼ сматчено → prices(service_id)     ▼ ниже порога → unmatched(service_id=NULL)
+                                               очередь оператора /api/unmatched + POST /match (учит синоним)
+        ▼
+   отчёт о качестве docs/quality-report.md (% автонормализации, очередь)
+```
+
+Принцип: **точность важнее охвата** — семантика авто-применяется только при высокой
+уверенности (≥0.85), иначе позиция идёт оператору как подсказка; ложный маппинг хуже
+unmatched, т.к. портит сравнение цен. Справочник организаторов фиксирован →
+`match_archive` read-only (не создаёт услуг/синонимов на приёме).
+
 ## Масштабирование
 - Планировщик: `scheduler.py` (cron) → Celery + Redis beat в проде.
 - Веб-парсер: httpx+BeautifulSoup для статики, Playwright-хук (`scrape_dynamic`) для SPA.

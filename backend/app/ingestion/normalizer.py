@@ -99,10 +99,34 @@ class Normalizer:
         self.catalog: list[ServiceCatalog] = self.db.query(ServiceCatalog).all()
         # индекс: ключ для fuzzy -> service
         self.index: dict[str, ServiceCatalog] = {}
+        # индекс по коду тарификатора (MedArchive): код -> [услуги] (код не уникален)
+        self.code_index: dict[str, list[ServiceCatalog]] = {}
         for svc in self.catalog:
             self.index[_clean(svc.canonical_name)] = svc
             for syn in (svc.synonyms or []):
                 self.index[_clean(str(syn))] = svc
+            code = getattr(svc, "tarificator_code", None)
+            if code:
+                self.code_index.setdefault(code, []).append(svc)
+
+    def match_archive(self, raw_name: str, code: str | None = None) -> tuple[ServiceCatalog | None, float]:
+        """READ-ONLY сопоставление позиции архива с ЦЕЛЕВЫМ справочником (он фиксирован).
+
+        СНАЧАЛА по коду тарификатора (точно, conf=1.0), иначе fuzzy. Ниже порога →
+        (None, conf): позиция уходит в очередь unmatched, БЕЗ создания новых услуг и
+        синонимов — официальный справочник 1286 услуг не загрязняется и приём быстр.
+        """
+        if code:
+            cands = self.code_index.get(code)
+            if cands:
+                if len(cands) == 1:
+                    return cands[0], 1.0
+                key = _clean(raw_name)  # один код у нескольких услуг — доуточняем по имени
+                return max(cands, key=lambda s: fuzz.token_set_ratio(key, _clean(s.canonical_name))), 1.0
+        svc, conf = self._fuzzy(raw_name)
+        if svc and conf >= self.threshold:
+            return svc, conf
+        return None, conf
 
     def _fuzzy(self, raw: str) -> tuple[ServiceCatalog | None, float]:
         if not self.index:

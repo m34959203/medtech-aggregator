@@ -16,6 +16,10 @@ import pandas as pd
 class RawItem:
     raw_name: str
     price: float
+    # §2.2: опциональные поля источника. duration_days — срок выполнения анализа;
+    # currency — валюта цены (USD конвертируется в KZT на приёме, оригинал сохраняется).
+    duration_days: int | None = None
+    currency: str = "KZT"
 
 
 # Возможные названия колонок с услугой и ценой (в т.ч. русские/казахские/англ.)
@@ -211,6 +215,20 @@ def parse_image(content: bytes) -> list[RawItem]:
     return _items_from_text(ocr.image_to_text(content))
 
 
+def parse_docx(content: bytes) -> list[RawItem]:
+    """DOCX (вкл. tracked changes) — §3.1 требует DOCX в основном канале приёма.
+    Переиспользуем извлекатель MedArchive (принимает правки, читает таблицы) и
+    приводим ArchiveItem→RawItem (берём резидентскую/единственную цену)."""
+    from . import archive_extractor as ae
+
+    out: list[RawItem] = []
+    for it in ae.parse_docx(content):
+        price = it.price_resident if it.price_resident is not None else it.price_original
+        if it.name and price:
+            out.append(RawItem(raw_name=it.name, price=float(price)))
+    return out
+
+
 def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[RawItem]]:
     """Определяет формат по расширению/содержимому и парсит. → (format, items)."""
     fn = filename.lower()
@@ -218,6 +236,8 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[RawItem]]
         return "xlsx", parse_excel(content)
     if fn.endswith(".csv"):
         return "csv", parse_csv(content)
+    if fn.endswith(".docx"):
+        return "docx", parse_docx(content)
     if fn.endswith(".pdf"):
         return "pdf", parse_pdf(content)
     if fn.endswith(_IMAGE_EXT):
@@ -226,6 +246,9 @@ def detect_and_parse(filename: str, content: bytes) -> tuple[str, list[RawItem]]
     if content[:4] == b"%PDF":
         return "pdf", parse_pdf(content)
     if content[:2] == b"PK":
+        # ZIP-контейнер: DOCX (word/document.xml) или XLSX
+        if b"word/document.xml" in content[:6000]:
+            return "docx", parse_docx(content)
         return "xlsx", parse_excel(content)
     if content[:3] == b"\xff\xd8\xff" or content[:8] == b"\x89PNG\r\n\x1a\n":
         return "scan", parse_image(content)

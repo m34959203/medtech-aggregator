@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ChatResponse,
   ClinicOut,
+  ClinicProfile,
   IngestionRun,
   IngestionStats,
   NormalizationPreview,
@@ -68,24 +69,56 @@ export function search(params: SearchParams = {}, signal?: AbortSignal): Promise
     q: params.q,
     city: params.city,
     category: params.category,
+    min_price: params.min_price,
     max_price: params.max_price,
+    min_rating: params.min_rating,
+    online_booking: params.online_booking === undefined ? undefined : String(params.online_booking),
+    user_lat: params.user_lat,
+    user_lng: params.user_lng,
     sort: params.sort,
     limit: params.limit ?? 20,
   });
   return apiFetch<ServiceComparison[]>(`/api/search${query}`, { signal });
 }
 
+// Автодополнение строки поиска по официальному справочнику.
+export function suggest(q: string, limit = 10, signal?: AbortSignal): Promise<string[]> {
+  const query = buildQuery({ q, limit });
+  return apiFetch<string[]>(`/api/suggest${query}`, { signal });
+}
+
+export interface CompareOpts {
+  city?: string;
+  min_price?: number;
+  max_price?: number;
+  min_rating?: number;
+  online_booking?: boolean;
+  user_lat?: number;
+  user_lng?: number;
+  sort?: SortOrder;
+}
+
 export function compare(
   serviceId: number,
-  opts: { city?: string; max_price?: number; sort?: SortOrder } = {},
+  opts: CompareOpts = {},
   signal?: AbortSignal,
 ): Promise<ServiceComparison> {
   const query = buildQuery({
     city: opts.city,
+    min_price: opts.min_price,
     max_price: opts.max_price,
+    min_rating: opts.min_rating,
+    online_booking: opts.online_booking === undefined ? undefined : String(opts.online_booking),
+    user_lat: opts.user_lat,
+    user_lng: opts.user_lng,
     sort: opts.sort,
   });
   return apiFetch<ServiceComparison>(`/api/compare/${serviceId}${query}`, { signal });
+}
+
+// Профиль клиники со всеми услугами.
+export function getClinicProfile(id: number, signal?: AbortSignal): Promise<ClinicProfile> {
+  return apiFetch<ClinicProfile>(`/api/clinics/${id}/profile`, { signal });
 }
 
 export function getCategories(signal?: AbortSignal): Promise<string[]> {

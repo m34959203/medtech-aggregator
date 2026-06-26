@@ -173,15 +173,21 @@ def scrape_site(payload: ScrapeIn, db: Session = Depends(get_db)):
     """② Pull: снять прайс с сайта клиники."""
     _require_clinic(db, payload.clinic_id)
     src = _ensure_source(db, payload.clinic_id, "web_scrape", payload.url)
+    raw = ""
     try:
-        items = (web_scraper.scrape_dynamic if payload.dynamic else web_scraper.scrape_url)(payload.url)
+        if payload.dynamic:
+            items = web_scraper.scrape_dynamic(payload.url)
+        else:
+            raw, items = web_scraper.scrape_url_raw(payload.url)
+    except web_scraper.RobotsDisallowed as e:
+        raise HTTPException(403, f"robots.txt сайта запрещает автосбор этого URL: {e.url}")
     except Exception as e:
         raise HTTPException(502, f"Ошибка автосбора: {e}")
     if not items:
         raise HTTPException(422, "С сайта не извлечено ни одной позиции прайса.")
     return ingest_items(
         db, clinic_id=payload.clinic_id, channel="pull", source_type="web_scrape",
-        items=items, fmt="html", source_id=src.id,
+        items=items, fmt="html", source_id=src.id, raw_content=raw,
     )
 
 

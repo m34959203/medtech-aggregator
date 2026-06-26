@@ -35,7 +35,12 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
     () => Math.ceil((initial.max_price || 1) / 500) * 500 || 1000,
     [initial.max_price],
   );
+  const [minPrice, setMinPrice] = useState(0);
   const [maxPrice, setMaxPrice] = useState(priceCeiling);
+  const [minRating, setMinRating] = useState(0);
+  const [onlineOnly, setOnlineOnly] = useState(false);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoState, setGeoState] = useState<"idle" | "loading" | "denied" | "ready">("idle");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +48,27 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
   const [activeClinicId, setActiveClinicId] = useState<number | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
   const firstRun = useRef(true);
+
+  // Геолокация — нужна для сортировки «по расстоянию».
+  const requestGeo = useCallback(() => {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      setGeoState("denied");
+      return;
+    }
+    setGeoState("loading");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoState("ready");
+      },
+      () => setGeoState("denied"),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300_000 },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (sort === "distance" && !coords && geoState === "idle") requestGeo();
+  }, [sort, coords, geoState, requestGeo]);
 
   const refetch = useCallback(async () => {
     abortRef.current?.abort();
@@ -55,7 +81,12 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         serviceId,
         {
           city: city || undefined,
+          min_price: minPrice > 0 ? minPrice : undefined,
           max_price: maxPrice < priceCeiling ? maxPrice : undefined,
+          min_rating: minRating > 0 ? minRating : undefined,
+          online_booking: onlineOnly ? true : undefined,
+          user_lat: sort === "distance" ? coords?.lat : undefined,
+          user_lng: sort === "distance" ? coords?.lng : undefined,
           sort,
         },
         controller.signal,
@@ -67,7 +98,7 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [serviceId, city, maxPrice, sort, priceCeiling]);
+  }, [serviceId, city, minPrice, maxPrice, minRating, onlineOnly, sort, coords, priceCeiling]);
 
   useEffect(() => {
     if (firstRun.current) {
@@ -154,9 +185,17 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
             onCity={setCity}
             sort={sort}
             onSort={setSort}
+            minPrice={minPrice}
+            onMinPrice={setMinPrice}
             maxPrice={maxPrice}
             onMaxPrice={setMaxPrice}
             priceCeiling={priceCeiling}
+            minRating={minRating}
+            onMinRating={setMinRating}
+            onlineOnly={onlineOnly}
+            onOnlineOnly={setOnlineOnly}
+            geoState={geoState}
+            onRetryGeo={requestGeo}
           />
 
           {error ? (
@@ -403,12 +442,28 @@ interface FiltersProps {
   onCity: (v: string) => void;
   sort: SortOrder;
   onSort: (v: SortOrder) => void;
+  minPrice: number;
+  onMinPrice: (v: number) => void;
   maxPrice: number;
   onMaxPrice: (v: number) => void;
   priceCeiling: number;
+  minRating: number;
+  onMinRating: (v: number) => void;
+  onlineOnly: boolean;
+  onOnlineOnly: (v: boolean) => void;
+  geoState: "idle" | "loading" | "denied" | "ready";
+  onRetryGeo: () => void;
 }
 
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: "price_asc", label: "Сначала дешевле" },
+  { value: "price_desc", label: "Сначала дороже" },
+  { value: "updated", label: "По дате обновления" },
+  { value: "distance", label: "По расстоянию" },
+];
+
 function Filters(p: FiltersProps) {
+  const priceStep = Math.max(100, Math.round(p.priceCeiling / 100));
   return (
     <div className="card space-y-4 p-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -430,54 +485,117 @@ function Filters(p: FiltersProps) {
           </select>
         </label>
 
-        <div>
+        <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-ink-500">
             Сортировка
           </span>
-          <div className="flex rounded-xl border border-ink-200 bg-white p-1 text-sm font-medium">
-            <button
-              type="button"
-              onClick={() => p.onSort("price_asc")}
-              className={`flex-1 rounded-lg px-2 py-1.5 transition ${
-                p.sort === "price_asc"
-                  ? "bg-brand-600 text-white"
-                  : "text-ink-500 hover:text-ink-800"
-              }`}
-            >
-              Дешевле
-            </button>
-            <button
-              type="button"
-              onClick={() => p.onSort("price_desc")}
-              className={`flex-1 rounded-lg px-2 py-1.5 transition ${
-                p.sort === "price_desc"
-                  ? "bg-brand-600 text-white"
-                  : "text-ink-500 hover:text-ink-800"
-              }`}
-            >
-              Дороже
-            </button>
-          </div>
-        </div>
+          <select
+            value={p.sort}
+            onChange={(e) => p.onSort(e.target.value as SortOrder)}
+            className="field py-2.5 text-sm"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {p.sort === "distance" && p.geoState !== "ready" && (
+        <p className="rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-500">
+          {p.geoState === "loading"
+            ? "Определяем ваше местоположение…"
+            : p.geoState === "denied"
+              ? (
+                <>
+                  Не удалось получить геолокацию.{" "}
+                  <button
+                    type="button"
+                    onClick={p.onRetryGeo}
+                    className="font-semibold text-brand-700 underline"
+                  >
+                    Разрешить доступ
+                  </button>
+                </>
+              )
+              : "Для сортировки по расстоянию нужен доступ к геолокации."}
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-ink-500">
+            Рейтинг клиники
+          </span>
+          <select
+            value={p.minRating}
+            onChange={(e) => p.onMinRating(Number(e.target.value))}
+            className="field py-2.5 text-sm"
+          >
+            <option value={0}>Любой</option>
+            <option value={3}>от 3,0 ★</option>
+            <option value={3.5}>от 3,5 ★</option>
+            <option value={4}>от 4,0 ★</option>
+            <option value={4.5}>от 4,5 ★</option>
+          </select>
+        </label>
+
+        <label className="flex cursor-pointer items-center gap-2.5 self-end rounded-xl border border-ink-200 bg-white px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={p.onlineOnly}
+            onChange={(e) => p.onOnlineOnly(e.target.checked)}
+            className="h-4 w-4 rounded accent-brand-600"
+          />
+          <span className="text-sm font-medium text-ink-700">
+            Только с онлайн-записью
+          </span>
+        </label>
       </div>
 
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-xs font-medium text-ink-500">Цена до</span>
+          <span className="text-xs font-medium text-ink-500">Цена</span>
           <span className="text-sm font-semibold text-brand-700">
-            {formatPrice(p.maxPrice)}
+            {formatPrice(p.minPrice)} – {formatPrice(p.maxPrice)}
           </span>
         </div>
-        <input
-          type="range"
-          min={0}
-          max={p.priceCeiling}
-          step={Math.max(100, Math.round(p.priceCeiling / 100))}
-          value={p.maxPrice}
-          onChange={(e) => p.onMaxPrice(Number(e.target.value))}
-          className="h-2 w-full cursor-pointer appearance-none rounded-full bg-ink-100 accent-brand-600"
-          aria-label="Максимальная цена"
-        />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2">
+            <span className="w-8 shrink-0 text-xs text-ink-400">от</span>
+            <input
+              type="range"
+              min={0}
+              max={p.priceCeiling}
+              step={priceStep}
+              value={p.minPrice}
+              onChange={(e) => {
+                const v = Math.min(Number(e.target.value), p.maxPrice);
+                p.onMinPrice(v);
+              }}
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-ink-100 accent-brand-600"
+              aria-label="Минимальная цена"
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="w-8 shrink-0 text-xs text-ink-400">до</span>
+            <input
+              type="range"
+              min={0}
+              max={p.priceCeiling}
+              step={priceStep}
+              value={p.maxPrice}
+              onChange={(e) => {
+                const v = Math.max(Number(e.target.value), p.minPrice);
+                p.onMaxPrice(v);
+              }}
+              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-ink-100 accent-brand-600"
+              aria-label="Максимальная цена"
+            />
+          </label>
+        </div>
       </div>
     </div>
   );
@@ -568,6 +686,20 @@ function OfferRow({
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <SourceBadge source={offer.source_type} />
+            {offer.rating != null && (
+              <span
+                className="inline-flex items-center gap-1 text-xs font-medium text-amber-600"
+                title="Рейтинг клиники"
+              >
+                <span aria-hidden>★</span>
+                {offer.rating.toFixed(1)}
+              </span>
+            )}
+            {offer.online_booking && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                онлайн-запись
+              </span>
+            )}
             <span
               className={`inline-flex items-center gap-1 text-xs ${
                 stale ? "font-medium text-amber-600" : "text-ink-400"
@@ -579,13 +711,45 @@ function OfferRow({
             </span>
             <span className="text-xs text-ink-400">точность {confidence}%</span>
           </div>
+          {offer.working_hours && (
+            <p className="inline-flex items-center gap-1.5 text-xs text-ink-500">
+              <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5 text-ink-400" aria-hidden>
+                <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M10 6v4l2.5 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {offer.working_hours}
+            </p>
+          )}
           {offer.raw_name && offer.raw_name !== offer.clinic_name && (
             <p className="text-xs text-ink-300">в прайсе: «{offer.raw_name}»</p>
           )}
-          <ReportPriceButton
-            serviceName={serviceName}
-            offer={offer}
-          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <Link
+              href={`/clinics/${offer.clinic_id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs font-medium text-brand-700 underline-offset-2 transition hover:underline"
+            >
+              Все услуги клиники →
+            </Link>
+            {(offer.source_url || offer.website) && (
+              <a
+                href={(offer.source_url || offer.website) as string}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-xs text-ink-400 underline-offset-2 transition hover:text-brand-700 hover:underline"
+              >
+                <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
+                  <path d="M11 4h5v5M16 4l-7 7M9 5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Источник
+              </a>
+            )}
+            <ReportPriceButton
+              serviceName={serviceName}
+              offer={offer}
+            />
+          </div>
         </div>
 
         <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">

@@ -10,7 +10,7 @@ from fastapi import Depends
 
 from .auth import require_admin
 from .routers import (
-    aggregator, auth, basket, chat, clinics, export, feedback, ingestion, leads, portal,
+    aggregator, auth, basket, chat, clinics, export, feedback, ingestion, leads, partners, portal,
     review, semantic,
 )
 
@@ -49,3 +49,4 @@ app.include_router(portal.router)
 app.include_router(basket.router)
 app.include_router(auth.router)
 app.include_router(semantic.router)
+app.include_router(partners.router)

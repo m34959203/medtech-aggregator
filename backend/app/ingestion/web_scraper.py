@@ -13,7 +13,9 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from ..config import settings
 from .file_parser import RawItem, parse_price
+from .robots import RobotsDisallowed, polite_get  # noqa: F401  (re-export для вызовов)
 
 UA = "Mozilla/5.0 (compatible; MedtechAggregator/1.0; +https://example.kz/bot)"
 
@@ -52,6 +54,42 @@ def _gemotest(html: str) -> list[RawItem]:
     return _dedup(out)
 
 
+def _kdl(html: str) -> list[RawItem]:
+    """KDL (kdl.kz / kdlolymp.kz) — лаборатория, источник №1 в ТЗ. Прайс по
+    филиалам: `/pricelist/<филиал>`. Карточка анализа — `a.analysis`, цена в
+    `.price`, а имя — текст карточки без служебных блоков (.about/.category/
+    .duration/.buy: туда уходят «Гематология · 1 день · ₸ · В корзину»)."""
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[RawItem] = []
+    for card in soup.select("a.analysis, .analysis"):
+        price_el = card.select_one(".price")
+        if not price_el:
+            continue
+        price = parse_price(price_el.get_text(" ", strip=True))
+        if not price:
+            continue
+        # срок выполнения анализа («1 день» → 1) из .duration — §2.2 duration_days
+        dur_el = card.select_one(".duration")
+        days = None
+        if dur_el:
+            m = re.search(r"(\d+)", dur_el.get_text(" ", strip=True))
+            if m:
+                days = int(m.group(1))
+        # имя = текст карточки минус служебные узлы
+        name_node = card.select_one(".name, .title") or card
+        if name_node is card:
+            tmp = BeautifulSoup(str(card), "html.parser")
+            for sel in (".about", ".buy", ".category", ".duration", ".price"):
+                for n in tmp.select(sel):
+                    n.decompose()
+            name = tmp.get_text(" ", strip=True)
+        else:
+            name = name_node.get_text(" ", strip=True)
+        if name and len(name) > 2:
+            out.append(RawItem(raw_name=name, price=price, duration_days=days))
+    return _dedup(out)
+
+
 def _103kz(html: str) -> list[RawItem]:
     """Универсальный адаптер платформы 103.kz: десятки клиник РК публикуют там
     прайс по шаблону <бренд>.103.kz/pricing/ в двух вёрстках карточек."""
@@ -81,6 +119,8 @@ def _103kz(html: str) -> list[RawItem]:
 _SITE_ADAPTERS = {
     "invitro.kz": _invitro,
     "gemotest.kz": _gemotest,
+    "kdl.kz": _kdl,
+    "kdlolymp.kz": _kdl,
 }
 _SUFFIX_ADAPTERS = {
     ".103.kz": _103kz,
@@ -162,9 +202,9 @@ def fetch_103kz_card(url: str, timeout: float = 20.0) -> dict | None:
     if not host.endswith(".103.kz"):
         return None
     try:
-        with httpx.Client(headers={"User-Agent": UA}, timeout=timeout,
-                          follow_redirects=True, verify=False) as c:
-            html = c.get(f"https://{host}/").text
+        html = polite_get(f"https://{host}/", timeout=timeout).text
+    except RobotsDisallowed:
+        return None
     except Exception:
         return None
     for block in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', html, re.S):
@@ -193,9 +233,9 @@ def fetch_contact(url: str, timeout: float = 20.0) -> dict | None:
     import json
 
     try:
-        with httpx.Client(headers={"User-Agent": UA}, timeout=timeout,
-                          follow_redirects=True, verify=False) as c:
-            html = c.get(url).text
+        html = polite_get(url, timeout=timeout).text
+    except RobotsDisallowed:
+        return None
     except Exception:
         return None
     out = {"address": None, "phone": "", "lat": None, "lng": None}
@@ -227,12 +267,13 @@ def scrape_lab_platform(base_url: str, city: str, timeout: float = 45.0) -> list
     item) и SAPA (строки .row с .cell__value)."""
     base = base_url.rstrip("/")
     referer = f"{base}/ru/{city}/analyzes/"
-    with httpx.Client(headers={"User-Agent": UA}, timeout=timeout,
-                      follow_redirects=True, verify=False) as c:
-        c.get(referer)  # набрать csrftoken/sessionid
+    with httpx.Client(headers={"User-Agent": settings.scrape_user_agent},
+                      timeout=timeout, follow_redirects=True, verify=False) as c:
+        polite_get(referer, timeout=timeout, client=c)  # набрать csrftoken/sessionid
         ajax = (f"{base}/ru/ajax/{city}/a-and-c-search-with-panels/"
                 "?service_type=anl&categories=%5B%5D&showed=%5B%5D&all=true&_=1")
-        resp = c.get(ajax, headers={"X-Requested-With": "XMLHttpRequest", "Referer": referer})
+        resp = polite_get(ajax, timeout=timeout, client=c,
+                          headers={"X-Requested-With": "XMLHttpRequest", "Referer": referer})
         resp.raise_for_status()
         data = resp.json().get("data", "")
     soup = BeautifulSoup(data, "html.parser")
@@ -256,12 +297,17 @@ def scrape_lab_platform(base_url: str, city: str, timeout: float = 45.0) -> list
     return _dedup(out)
 
 
+def scrape_url_raw(url: str, timeout: float = 20.0) -> tuple[str, list[RawItem]]:
+    """Как scrape_url, но возвращает (сырой HTML, позиции) — для raw-слоя (§3.1)."""
+    resp = polite_get(url, timeout=timeout)  # robots.txt + crawl-delay
+    resp.raise_for_status()
+    adapter = _adapter_for(url)
+    items = adapter(resp.text) if adapter else _items_from_html(resp.text)
+    return resp.text, items
+
+
 def scrape_url(url: str, timeout: float = 20.0) -> list[RawItem]:
-    with httpx.Client(headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True, verify=False) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
-        adapter = _adapter_for(url)
-        return adapter(resp.text) if adapter else _items_from_html(resp.text)
+    return scrape_url_raw(url, timeout)[1]
 
 
 def scrape_html(html: str) -> list[RawItem]:
@@ -271,6 +317,9 @@ def scrape_html(html: str) -> list[RawItem]:
 
 def scrape_dynamic(url: str) -> list[RawItem]:
     """Точка расширения для SPA-сайтов через Playwright (если установлен)."""
+    from .robots import can_fetch
+    if not can_fetch(url):
+        raise RobotsDisallowed(url)
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:  # pragma: no cover

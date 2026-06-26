@@ -1,18 +1,30 @@
-"""Агрегатор (Кейс 2): поиск и сравнение цен по нормализованному справочнику."""
+"""Агрегатор (Кейс 1 MedPrice): поиск и сравнение цен по нормализованному справочнику."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
 from statistics import median
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_db
+from ..ingestion import category as category_enum
 from ..ingestion import ontology, variants
 from ..models import Clinic, Price, PriceHistory, ServiceCatalog
 from ..schemas import PriceOffer, ServiceComparison, ServiceOut, ServiceVariant
 
 router = APIRouter(prefix="/api", tags=["aggregator"])
+
+
+def _haversine(lat1, lng1, lat2, lng2) -> float:
+    """Расстояние в км между двумя точками (для сортировки по близости §3.3)."""
+    r = 6371.0
+    dlat, dlng = radians(lat2 - lat1), radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return 2 * r * asin(sqrt(a))
 
 
 def _price_trend(db: Session, service_id: int) -> dict | None:
@@ -72,8 +84,13 @@ def _matches(svc: ServiceCatalog, q: str) -> bool:
 
 @router.get("/categories", response_model=list[str])
 def categories(db: Session = Depends(get_db)):
-    rows = db.query(distinct(ServiceCatalog.category)).order_by(ServiceCatalog.category).all()
-    return [r[0] for r in rows if r[0]]
+    """§2.2: категории как ENUM ТЗ (лаборатория/приём врача/диагностика/процедура),
+    но только те, что реально присутствуют в справочнике."""
+    present: set[str] = set()
+    for s in db.query(ServiceCatalog.category, ServiceCatalog.specialty,
+                      ServiceCatalog.canonical_name).all():
+        present.add(category_enum.to_enum(s[0], s[1], s[2]))
+    return [c for c in category_enum.ENUM if c in present]
 
 
 @router.get("/cities", response_model=list[str])
@@ -99,6 +116,8 @@ def list_services(
 
 
 def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sort,
+                      *, min_price=None, min_rating=None, online_booking=None,
+                      user_lat=None, user_lng=None, include_stale: bool = False,
                       with_variants: bool = False) -> ServiceComparison:
     q = (
         db.query(Price, Clinic)
@@ -109,9 +128,28 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
         q = q.filter(Clinic.city == city)
     if max_price is not None:
         q = q.filter(Price.price <= max_price)
+    if min_price is not None:
+        q = q.filter(Price.price >= min_price)
+    if min_rating is not None:
+        q = q.filter(Clinic.rating >= min_rating)
+    if online_booking is not None:
+        q = q.filter(Clinic.online_booking.is_(online_booking))
+
+    # §4: не выдавать данные старше N дней как актуальные. Цена считается свежей,
+    # если is_active И время парсинга/действия в окне свежести.
+    cutoff = datetime.utcnow() - timedelta(days=settings.price_freshness_days)
+    date_cutoff = cutoff.date()
 
     offers: list[PriceOffer] = []
     for price, clinic in q.all():
+        fresh = bool(getattr(price, "is_active", True))
+        pa = getattr(price, "parsed_at", None)
+        if pa is not None:
+            fresh = fresh and pa >= cutoff
+        elif price.valid_from is not None:
+            fresh = fresh and price.valid_from >= date_cutoff
+        if not include_stale and not fresh:
+            continue
         offers.append(
             PriceOffer(
                 clinic_id=clinic.id,
@@ -128,16 +166,34 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
                 source_type=price.source_type,
                 match_confidence=price.match_confidence,
                 valid_from=price.valid_from,
+                working_hours=clinic.working_hours or "",
+                website=clinic.website or "",
+                source_url=clinic.website or "",
+                rating=clinic.rating,
+                online_booking=clinic.online_booking,
+                duration_days=getattr(price, "duration_days", None),
+                is_active=fresh,
+                parsed_at=pa,
+                price_original=float(price.price_original) if getattr(price, "price_original", None) is not None else None,
+                currency_original=getattr(price, "currency_original", "") or "",
             )
         )
 
-    reverse = sort == "price_desc"
-    offers.sort(key=lambda o: o.price, reverse=reverse)
+    # сортировка §3.3: цена возр/убыв, дата обновления, расстояние (при гео)
+    if sort == "updated":
+        offers.sort(key=lambda o: o.parsed_at or datetime.min, reverse=True)
+    elif sort == "distance" and user_lat is not None and user_lng is not None:
+        offers.sort(key=lambda o: _haversine(user_lat, user_lng, o.lat, o.lng)
+                    if o.lat is not None and o.lng is not None else 1e9)
+    else:
+        offers.sort(key=lambda o: o.price, reverse=(sort == "price_desc"))
+
     prices = [o.price for o in offers] or [0.0]
     return ServiceComparison(
         service_id=service.id,
         canonical_name=service.canonical_name,
         category=service.category,
+        category_enum=category_enum.to_enum(service.category, service.specialty, service.canonical_name),
         offers_count=len(offers),
         min_price=min(prices),
         max_price=max(prices),
@@ -154,13 +210,45 @@ def compare(
     service_id: int,
     city: str | None = None,
     max_price: float | None = None,
-    sort: str = Query("price_asc", pattern="^(price_asc|price_desc)$"),
+    min_price: float | None = None,
+    min_rating: float | None = None,
+    online_booking: bool | None = None,
+    user_lat: float | None = None,
+    user_lng: float | None = None,
+    sort: str = Query("price_asc", pattern="^(price_asc|price_desc|updated|distance)$"),
     db: Session = Depends(get_db),
 ):
     service = db.get(ServiceCatalog, service_id)
     if not service:
         raise HTTPException(404, "Услуга не найдена")
-    return _build_comparison(db, service, city, max_price, sort, with_variants=True)
+    return _build_comparison(
+        db, service, city, max_price, sort, min_price=min_price, min_rating=min_rating,
+        online_booking=online_booking, user_lat=user_lat, user_lng=user_lng,
+        with_variants=True,
+    )
+
+
+@router.get("/suggest", response_model=list[str])
+def suggest(
+    q: str = Query("", description="префикс запроса для автодополнения"),
+    limit: int = 10,
+    db: Session = Depends(get_db),
+):
+    """§3.3: автодополнение строки поиска по справочнику (канонические имена + синонимы)."""
+    ql = q.lower().strip()
+    if len(ql) < 2:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for s in db.query(ServiceCatalog).order_by(ServiceCatalog.canonical_name).all():
+        name = s.canonical_name
+        hay = [name] + [str(x) for x in (s.synonyms or [])]
+        if any(ql in h.lower() for h in hay) and name.lower() not in seen:
+            seen.add(name.lower())
+            out.append(name)
+        if len(out) >= limit:
+            break
+    return out
 
 
 @router.get("/ontology")
@@ -190,22 +278,33 @@ def search(
     city: str | None = None,
     category: str | None = None,
     max_price: float | None = None,
+    min_price: float | None = None,
+    min_rating: float | None = None,
+    online_booking: bool | None = None,
+    user_lat: float | None = None,
+    user_lng: float | None = None,
     sort: str = "price_asc",
     limit: int = 20,
     db: Session = Depends(get_db),
 ):
     """Поиск услуг + сводка сравнения по каждой (для главной витрины)."""
-    query = db.query(ServiceCatalog)
+    services = db.query(ServiceCatalog).order_by(ServiceCatalog.canonical_name).all()
+    # категория §3.3: матчим по enum-категории ТЗ (а не по сырому тексту справочника)
     if category:
-        query = query.filter(ServiceCatalog.category == category)
-    services = query.order_by(ServiceCatalog.canonical_name).all()
+        cl = category.lower()
+        services = [s for s in services
+                    if category_enum.to_enum(s.category, s.specialty, s.canonical_name) == cl
+                    or cl in (s.category or "").lower()]
     if q:
         services = [s for s in services if _matches(s, q)]
 
     # только услуги, у которых есть хотя бы одна цена
     results: list[ServiceComparison] = []
     for svc in services:
-        cmp = _build_comparison(db, svc, city, max_price, sort)
+        cmp = _build_comparison(
+            db, svc, city, max_price, sort, min_price=min_price, min_rating=min_rating,
+            online_booking=online_booking, user_lat=user_lat, user_lng=user_lng,
+        )
         if cmp.offers_count > 0:
             results.append(cmp)
         if len(results) >= limit:

@@ -158,5 +158,23 @@ curl -X POST localhost:8000/api/chat -H "Content-Type: application/json" \
 - `GET /api/clinics/{id}` → `ClinicOut`
 - `GET /api/clinics/{id}/prices` → `PriceOut[]`
 
+## MedArchive — обработка архива прайсов партнёров (Кейс 2)
+
+Контракт «кто оказывает услугу и по какой цене» поверх единой платформы
+(партнёр = клиника, услуга = справочник). Приём архива — CLI
+`python -m app.archive_ingest <папка|zip> --catalog "Справочник услуг.xlsx" [--semantic-pass]`,
+выходной артефакт — `docs/quality-report.md` (отчёт о качестве обработки).
+
+- `GET /api/partners?city=` → партнёры с числом услуг.
+- `GET /api/partners/{id}/services` → все услуги партнёра с ценами **резидент/нерезидент**.
+- `GET /api/services/{id}/partners` → кто оказывает услугу, от дешёвой цены.
+- `GET /api/unmatched?limit=200` → очередь несопоставленных позиций (для операторов).
+- `POST /api/match` `{price_id, service_id}` — ручное сопоставление (запоминает синоним). **Только админ.**
+- `GET /api/archive/quality` → метрики дашборда: документов, позиций, % автонормализации, очередь, цель ≥70%.
+
+Нормализация трёхтировая: **код тарификатора** (точно) → нечётко (rapidfuzz) →
+семантика (эмбеддинги). Цены резидент/нерезидент извлекаются раздельно из
+DOCX (с принятием tracked changes), XLSX/XLS (многострочная шапка) и PDF.
+
 ## Служебное
 - `GET /health` → `{"status":"ok"}`

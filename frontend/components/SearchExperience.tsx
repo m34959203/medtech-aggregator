@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { search } from "@/lib/api";
+import { search, suggest } from "@/lib/api";
 import type { ServiceComparison, SortOrder } from "@/lib/types";
 import ServiceCard from "./ServiceCard";
 import { CardGridSkeleton } from "./Skeletons";
@@ -133,29 +133,8 @@ function FilterBar(p: FilterProps) {
   return (
     <div className="mx-auto -mt-8 max-w-4xl px-4 sm:px-6">
       <div className="card relative z-10 grid grid-cols-1 gap-3 p-3 sm:grid-cols-12 sm:items-center">
-        <div className="relative sm:col-span-12">
-          <svg
-            viewBox="0 0 20 20"
-            fill="none"
-            className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400"
-            aria-hidden
-          >
-            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.75" />
-            <path
-              d="m14 14 3 3"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-            />
-          </svg>
-          <input
-            type="search"
-            value={p.query}
-            onChange={(e) => p.onQuery(e.target.value)}
-            placeholder="Например: МРТ головного мозга, УЗИ, приём кардиолога…"
-            className="field pl-12 text-base"
-            aria-label="Поиск медицинской услуги"
-          />
+        <div className="sm:col-span-12">
+          <SearchAutocomplete query={p.query} onQuery={p.onQuery} />
         </div>
 
         <div className="sm:col-span-5">
@@ -196,6 +175,144 @@ function FilterBar(p: FilterProps) {
           <SortToggle sort={p.sort} onSort={p.onSort} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function SearchAutocomplete({
+  query,
+  onQuery,
+}: {
+  query: string;
+  onQuery: (v: string) => void;
+}) {
+  const [items, setItems] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  // Когда значение поставлено выбором из списка — не дёргаем подсказки заново.
+  const skipNext = useRef(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (skipNext.current) {
+      skipNext.current = false;
+      return;
+    }
+    const q = query.trim();
+    if (q.length < 2) {
+      setItems([]);
+      setOpen(false);
+      return;
+    }
+    const t = setTimeout(async () => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const data = await suggest(q, 10, controller.signal);
+        setItems(data);
+        setOpen(data.length > 0);
+        setActive(-1);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setItems([]);
+        setOpen(false);
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Закрытие по клику вне.
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const pick = (value: string) => {
+    skipNext.current = true;
+    onQuery(value);
+    setOpen(false);
+    setItems([]);
+    setActive(-1);
+  };
+
+  return (
+    <div ref={boxRef} className="relative">
+      <svg
+        viewBox="0 0 20 20"
+        fill="none"
+        className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400"
+        aria-hidden
+      >
+        <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.75" />
+        <path d="m14 14 3 3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      </svg>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        onFocus={() => {
+          if (items.length > 0) setOpen(true);
+        }}
+        onKeyDown={(e) => {
+          if (!open || items.length === 0) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setActive((i) => (i + 1) % items.length);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((i) => (i - 1 + items.length) % items.length);
+          } else if (e.key === "Enter" && active >= 0) {
+            e.preventDefault();
+            pick(items[active]);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+        placeholder="Например: МРТ головного мозга, УЗИ, приём кардиолога…"
+        className="field pl-12 text-base"
+        aria-label="Поиск медицинской услуги"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        autoComplete="off"
+      />
+      {open && items.length > 0 && (
+        <ul
+          className="absolute left-0 right-0 top-full z-20 mt-2 max-h-72 overflow-auto rounded-xl border border-ink-200 bg-white py-1.5 shadow-lg"
+          role="listbox"
+        >
+          {items.map((item, i) => (
+            <li key={item} role="option" aria-selected={i === active}>
+              <button
+                type="button"
+                onMouseEnter={() => setActive(i)}
+                onClick={() => pick(item)}
+                className={`flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm transition ${
+                  i === active ? "bg-brand-50 text-brand-800" : "text-ink-700 hover:bg-ink-50"
+                }`}
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  className="h-4 w-4 shrink-0 text-ink-300"
+                  aria-hidden
+                >
+                  <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
+                  <path d="m14 14 3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+                <span className="truncate">{item}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

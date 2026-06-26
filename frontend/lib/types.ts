@@ -1,7 +1,7 @@
 // Типы, отражающие контракт FastAPI-бэкенда (см. app/schemas.py).
 
 export type SourceType = "upload" | "web_scrape" | "api";
-export type SortOrder = "price_asc" | "price_desc";
+export type SortOrder = "price_asc" | "price_desc" | "updated" | "distance";
 
 export interface PriceOffer {
   clinic_id: number;
@@ -18,6 +18,17 @@ export interface PriceOffer {
   source_type: SourceType;
   match_confidence: number; // 0..1
   valid_from: string; // ISO date
+  // --- §3.3: расширенный контракт оффера ---
+  working_hours?: string | null;
+  website?: string | null;
+  source_url?: string | null;
+  rating?: number | null;
+  online_booking?: boolean | null;
+  duration_days?: number | null;
+  is_active?: boolean | null;
+  parsed_at?: string | null;
+  price_original?: number | null;
+  currency_original?: string | null;
 }
 
 export interface ServiceVariant {
@@ -48,10 +59,13 @@ export interface ServiceOntology {
   osms: boolean;
 }
 
+export type CategoryEnum = "лаборатория" | "приём врача" | "диагностика" | "процедура";
+
 export interface ServiceComparison {
   service_id: number;
   canonical_name: string;
   category: string;
+  category_enum?: CategoryEnum | string | null;
   offers_count: number;
   min_price: number;
   max_price: number;
@@ -244,7 +258,39 @@ export interface SearchParams {
   q?: string;
   city?: string;
   category?: string;
+  min_price?: number;
   max_price?: number;
+  min_rating?: number;
+  online_booking?: boolean;
+  user_lat?: number;
+  user_lng?: number;
   sort?: SortOrder;
   limit?: number;
+}
+
+// --- §3.3: профиль клиники (все услуги) ---
+export interface ClinicProfileService {
+  name: string;
+  price: number;
+  currency: string;
+  duration_days: number | null;
+  source_type: SourceType;
+  valid_from: string;
+  is_active: boolean;
+}
+
+export interface ClinicProfile {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  phone: string;
+  working_hours: string | null;
+  website: string | null;
+  rating: number | null;
+  online_booking: boolean;
+  lat: number | null;
+  lng: number | null;
+  services_count: number;
+  services: ClinicProfileService[];
 }
