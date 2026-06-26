@@ -306,3 +306,34 @@ export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<Cha
     signal,
   });
 }
+
+// --- WhatsApp-туннель (admin) ---
+export interface WaStatus {
+  status: "disconnected" | "connecting" | "qr_ready" | "connected";
+  phoneNumber: string | null;
+  qrCode: string | null; // data-URL QR для привязки телефона
+}
+export interface WaLimits {
+  dailyLimit: number;
+  sentLast24h: number;
+  remaining: number;
+  humanize: boolean;
+  requireClientInitiated: boolean;
+  queueDepth: number;
+}
+
+export function waStatus(signal?: AbortSignal): Promise<WaStatus> {
+  return apiFetch<WaStatus>("/api/wa/status", { signal });
+}
+export function waConnect(): Promise<{ status: string; qrCode?: string | null }> {
+  return apiFetch("/api/wa/connect", { method: "POST" });
+}
+export function waDisconnect(): Promise<unknown> {
+  return apiFetch("/api/wa/disconnect", { method: "POST" });
+}
+export function waLogout(): Promise<unknown> {
+  return apiFetch("/api/wa/logout", { method: "POST" });
+}
+export function waLimits(signal?: AbortSignal): Promise<WaLimits> {
+  return apiFetch<WaLimits>("/api/wa/limits", { signal });
+}
