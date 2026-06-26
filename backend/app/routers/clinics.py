@@ -78,7 +78,7 @@ def clinic_profile(clinic_id: int, db: Session = Depends(get_db)):
         "duration_days": getattr(p, "duration_days", None),
         "source_type": p.source_type,
         "valid_from": p.valid_from.isoformat() if p.valid_from else None,
-        "is_active": getattr(p, "is_active", True),
+        "is_active": getattr(p, "is_active", True) is not False,  # NULL легаси → активна
     } for p, svc in rows]
     services.sort(key=lambda s: s["price"])
     return {

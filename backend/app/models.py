@@ -150,7 +150,9 @@ class Price(Base):
     # §2.2 MedPrice: точное время парсинга, флаг актуальности, срок выполнения (анализы),
     # и оригинальная цена/валюта до конверсии USD→KZT (прозрачность источника).
     parsed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # nullable: additive-колонка на проде добавляется как NULL у легаси-строк;
+    # читатели трактуют NULL как активную (неактивна = явный False).
+    is_active: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
     duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     price_original: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency_original: Mapped[str] = mapped_column(String(8), default="")

@@ -169,7 +169,10 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
 
     offers: list[PriceOffer] = []
     for price, clinic in q.all():
-        fresh = bool(getattr(price, "is_active", True))
+        # NULL (легаси/перенесённые строки) трактуем как активную — колоночный
+        # default=True не применяется к ALTER-добавленным колонкам на старых строках;
+        # неактивной считаем ТОЛЬКО явный False (scheduler.mark_stale_inactive).
+        fresh = getattr(price, "is_active", True) is not False
         pa = getattr(price, "parsed_at", None)
         if pa is not None:
             fresh = fresh and pa >= cutoff
