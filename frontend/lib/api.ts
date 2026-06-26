@@ -151,6 +151,16 @@ export function previewNormalization(
   });
 }
 
+// Распознавание услуг с фото/скана/PDF направления (OCR на бэкенде).
+// Для FormData Content-Type не ставим вручную — браузер выставит boundary сам.
+export function previewNormalizationFile(
+  file: File,
+): Promise<{ results: NormalizationLine[]; ocr_text: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch("/api/ingest/preview-file", { method: "POST", body: form });
+}
+
 // --- Кейс 1: админ-приём ---
 export function getIngestionStats(signal?: AbortSignal): Promise<IngestionStats> {
   return apiFetch<IngestionStats>("/api/ingest/stats", { signal });

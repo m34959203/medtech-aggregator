@@ -154,6 +154,11 @@ class AiResolveBody(BaseModel):
     limit: int = 25            # сколько позиций обработать за вызов (батч < CF-таймаута)
     apply: bool = False        # применять ли уверенные решения сразу
     min_confidence: float = 0.8
+    # Какие действия авто-применять. ВАЖНО: reassign ненадёжен (ИИ уверенно путает
+    # услуги по общему слову: «арт. давление»→глазная тонометрия, «Токсокароз IgG»→
+    # «Трихомониаз IgG»), поэтому по умолчанию авто-применяем только высокоточные
+    # confirm/junk; reassign/new возвращаем оператору как предложения. Боевой прогон.
+    auto_actions: list[str] = ["confirm", "junk"]
 
 
 @router.post("/ai-resolve")
@@ -188,7 +193,7 @@ def ai_resolve(body: AiResolveBody, db: Session = Depends(get_db)):
         if action == "reassign" and sid:
             t = db.get(ServiceCatalog, sid)
             prop["target_name"] = t.canonical_name if t else None
-        if body.apply and action in ("confirm", "reassign", "new", "junk") and conf >= body.min_confidence:
+        if body.apply and action in body.auto_actions and conf >= body.min_confidence:
             mapped = "reject" if action == "junk" else action
             if _apply_review(db, price, mapped, sid):
                 applied += 1
