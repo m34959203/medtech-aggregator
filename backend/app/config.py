@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     match_confidence_threshold: float = 0.78
+    # Пол отказа: ниже этой реальной близости — НЕ привязываем (статус unmatched),
+    # а не тянем «лучший» мусорный кандидат с фиктивными 100% (TASK 2 боевого отчёта).
+    reject_floor: float = 0.60
 
     # Безопасность админ-зоны (passwordless: доступ по токену через cookie).
     # Пусто → админ-роуты ЗАКРЫТЫ (fail-closed). Задать ADMIN_TOKEN в .env/проде.
