@@ -9,7 +9,7 @@ from app.data import kz_cities
 from app.db import Base, get_db
 from app.main import app
 from app import models  # noqa: F401
-from app.models import Clinic
+from app.models import Clinic, Price, ServiceCatalog
 
 
 def test_directory_has_90_cities():
@@ -44,8 +44,14 @@ def client():
     Base.metadata.create_all(engine)
     TS = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     s = TS()
+    svc = ServiceCatalog(canonical_name="ОАК", category="Анализы", synonyms=[])
+    s.add(svc)
     s.add(Clinic(id=1, name="Клиника А", city="Алматы"))
     s.add(Clinic(id=2, name="Клиника Б", city="Астана"))
+    s.flush()
+    # у обеих клиник есть цена → оба города «с данными»
+    s.add(Price(clinic_id=1, service_id=svc.id, raw_name="ОАК", price=1500, source_type="web_scrape"))
+    s.add(Price(clinic_id=2, service_id=svc.id, raw_name="ОАК", price=2000, source_type="web_scrape"))
     s.commit()
     s.close()
 
@@ -61,14 +67,12 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_cities_endpoint_full_coverage(client):
-    """Фильтр знает все 90 городов; города с данными — первыми."""
+def test_cities_endpoint_only_cities_with_data(client):
+    """Фильтр отдаёт ТОЛЬКО города с ценами — без пустых из справочника."""
     cities = client.get("/api/cities").json()
-    assert len(cities) >= 90
-    # все 90 справочника присутствуют
-    assert set(kz_cities.names()).issubset(set(cities))
-    # города с данными идут первыми и отсортированы
-    assert cities[:2] == ["Алматы", "Астана"]
+    assert cities == ["Алматы", "Астана"]
+    # пустые города справочника (без данных) в фильтр НЕ попадают
+    assert "Тараз" not in cities and "Байконыр" not in cities
 
 
 def test_cities_coverage_endpoint(client):
