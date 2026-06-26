@@ -32,8 +32,9 @@ def db():
         ServiceCatalog(canonical_name="Ферритин", category="Анализы", synonyms=["феретин"]),
         # ЗАГРЯЗНЕНИЕ: «Ферритин» (кровяной) в синонимах мочевого варианта
         ServiceCatalog(canonical_name="Ферритин в моче", category="Анализы", synonyms=["Ферритин"]),
-        # ЗАГРЯЗНЕНИЕ: «АЛТ» ошибочно в синонимах кальция
+        # ЗАГРЯЗНЕНИЕ: «АЛТ» ошибочно в синонимах кальция (есть отдельная услуга АЛТ)
         ServiceCatalog(canonical_name="Са+ (кальций ионизированный)", category="Анализы", synonyms=["АЛТ"]),
+        ServiceCatalog(canonical_name="АЛТ", category="Анализы", synonyms=["аланинаминотрансфераза"]),
     ]
     s.add_all(cat)
     s.commit()
@@ -112,9 +113,10 @@ def test_ferritin_prefers_blood(db):
 def test_alt_not_forced_to_calcium(db):
     sanitize_synonyms(db)
     it = Normalizer(db).analyze("АЛТ (ALT)")["items"][0]
-    # после чистки «АЛТ» нет в синонимах кальция → честный отказ, НЕ ложный 100% на Са+
+    # после точечной чистки «АЛТ» убран из синонимов кальция (это имя ДРУГОЙ услуги) →
+    # матчится на настоящую услугу «АЛТ», НЕ на «Са+»
     assert it["canonical"] != "Са+ (кальций ионизированный)"
-    assert it["status"] == "unmatched"
+    assert it["canonical"] == "АЛТ" and it["status"] == "matched"
 
 
 PANELS = [
