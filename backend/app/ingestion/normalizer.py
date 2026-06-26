@@ -441,21 +441,13 @@ def sanitize_synonyms(db: Session) -> int:
       • S совпадает с canonical ДРУГОЙ услуги (кросс-привязка); ИЛИ
       • S — короткая аббревиатура, НЕ являющаяся инициалами X и не похожая на X.
     Возвращает число удалённых синонимов."""
+    # ТОЧЕЧНОЕ правило (высокая точность): удаляем синоним, только если он дублирует
+    # собственное имя ИЛИ ТОЧНО совпадает с именем ДРУГОЙ услуги (однозначный мис-файл,
+    # напр. «Ферритин» в синонимах «Витамин D»). Эвристику «короткая аббревиатура» НЕ
+    # применяем — на боевом наборе она снесла сотни легитимных синонимов-сырых-имён.
     cats = db.query(ServiceCatalog).all()
     by_canon: dict[str, ServiceCatalog] = {_clean(c.canonical_name): c for c in cats}
     removed = 0
-
-    def is_acronym(short: str, canonical: str) -> bool:
-        words = [w for w in re.split(r"[\s/]+", _clean(canonical)) if w]
-        initials = "".join(w[0] for w in words)
-        return short.replace(" ", "") in (initials, initials[: len(short)])
-
-    def in_canonical(short: str, canonical: str) -> bool:
-        """Аббревиатура буквально присутствует в названии (напр. «(HbA1c)») —
-        даже если _clean срезал её из скобок. Тогда синоним легитимен."""
-        canon_alnum = re.sub(r"[^0-9a-zа-яё]", "", canonical.lower())
-        return short.replace(" ", "") in canon_alnum
-
     for x in cats:
         kept, changed = [], False
         xck = _clean(x.canonical_name)
@@ -466,12 +458,7 @@ def sanitize_synonyms(db: Session) -> int:
                 removed += 1; changed = True; continue
             other = by_canon.get(cs)
             if other is not None and other.id != x.id:
-                removed += 1; changed = True; continue  # принадлежит другой услуге
-            if len(cs) <= 5 and " " not in cs:
-                if not is_acronym(cs, x.canonical_name) and \
-                   not in_canonical(cs, x.canonical_name) and \
-                   fuzz.token_set_ratio(cs, xck) < 50:
-                    removed += 1; changed = True; continue  # чужая аббревиатура
+                removed += 1; changed = True; continue  # синоним = имя другой услуги
             kept.append(s)
         if changed:
             x.synonyms = kept
