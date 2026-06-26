@@ -19,7 +19,7 @@ from ..db import get_db
 from ..ratelimit import rate_limit
 from ..ingestion import ocr
 from ..ingestion.file_parser import _IMAGE_EXT
-from ..ingestion.normalizer import Normalizer
+from ..ingestion.normalizer import Normalizer, _clean
 from .aggregator import _build_comparison
 
 router = APIRouter(prefix="/api/basket", tags=["basket"])
@@ -65,16 +65,11 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
     canon: dict[int, str] = {}
     clinic_cover: dict[int, dict] = {}
 
-    for nm in names:
-        svc, conf = norm.match(nm)
-        if not svc or conf < _MATCH_FLOOR:
-            unrecognized.append(nm)
-            continue
+    def _add_service(svc, nm: str, conf: float):
         if svc.id in seen:
-            continue
+            return
         seen[svc.id] = nm
         canon[svc.id] = svc.canonical_name
-
         cmp = _build_comparison(db, svc, city, None, "price_asc")
         cheapest = cmp.offers[0] if cmp.offers else None
         items.append({
@@ -93,6 +88,22 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
             })
             if svc.id not in c["prices"] or o.price < c["prices"][svc.id]:
                 c["prices"][svc.id] = o.price
+
+    # Каждую строку — через полный разбор: gate шума (ФИО/дата/заголовок не услуги),
+    # декомпозиция панелей (липидограмма→4), строгий матч с порогом отказа.
+    for nm in names:
+        res = norm.analyze(nm)
+        if res["kind"] == "noise":
+            continue  # шум направления — не услуга
+        for it in res["items"]:
+            if it["status"] != "matched":
+                unrecognized.append(nm if it["canonical"] in ("—", None) else it["canonical"])
+                continue
+            svc = norm.index.get(_clean(it["canonical"]))
+            if not svc:  # распознано (панель/новое), но в справочнике/ценах нет
+                unrecognized.append(it["canonical"])
+                continue
+            _add_service(svc, nm, float(it.get("confidence") or 1.0))
 
     target = [it["service_id"] for it in items if it["cheapest"]]
     total_mixed = round(sum(it["cheapest"]["price"] for it in items if it["cheapest"]), 2)
@@ -113,8 +124,10 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
         if best is None or (cand["covered"], -cand["total"]) > (best["covered"], -best["total"]):
             best = cand
 
+    # дедуп unrecognized с сохранением порядка
+    uniq_unrec = list(dict.fromkeys(unrecognized))
     return {
-        "recognized": items, "unrecognized": unrecognized,
+        "recognized": items, "unrecognized": uniq_unrec,
         "services_found": len(items), "total_cheapest_mixed": total_mixed,
         "best_single_clinic": best, "city": city or None,
     }
