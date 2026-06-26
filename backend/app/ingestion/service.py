@@ -10,12 +10,37 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import IngestionRun, Price, Source
+from ..models import IngestionRun, Price, PriceHistory, Source
 from ..schemas import IngestionResult
 from .file_parser import RawItem
 from .normalizer import Normalizer
 
 SOURCE_PRIORITY = {"upload": 3, "api": 2, "web_scrape": 1}
+
+
+def to_kzt(price: float, currency: str) -> tuple[float, float | None, str]:
+    """§2.2: привести цену к KZT. Возвращает (price_kzt, price_original, currency_original).
+    Для KZT/пустой валюты конверсии нет (original=None)."""
+    cur = (currency or "KZT").upper()
+    if cur in ("", "KZT", "ТГ", "ТЕНГЕ", "₸"):
+        return float(price), None, ""
+    if cur == "USD":
+        return round(float(price) * settings.usd_kzt_rate, 2), float(price), "USD"
+    # неизвестная валюта — курс не угадываем, цену оставляем, оригинал помечаем
+    return float(price), float(price), cur
+
+
+def record_price_history(db: Session, clinic_id: int, service_id: int, price: float) -> None:
+    """Логирует цену в историю, только если она ОТЛИЧАЕТСЯ от последней записанной."""
+    last = (
+        db.query(PriceHistory)
+        .filter(PriceHistory.clinic_id == clinic_id, PriceHistory.service_id == service_id)
+        .order_by(PriceHistory.recorded_at.desc(), PriceHistory.id.desc())
+        .first()
+    )
+    if last is not None and float(last.price) == float(price):
+        return
+    db.add(PriceHistory(clinic_id=clinic_id, service_id=service_id, price=price))
 
 
 def ingest_items(
@@ -28,6 +53,7 @@ def ingest_items(
     fmt: str,
     source_id: int | None = None,
     valid_from: date | None = None,
+    raw_content: str = "",
 ) -> IngestionResult:
     valid_from = valid_from or date.today()
     run = IngestionRun(
@@ -36,6 +62,7 @@ def ingest_items(
         format=fmt,
         status="started",
         items_found=len(items),
+        raw_content=(raw_content or "")[:200_000],  # raw-слой (§3.1): сырьё для аудита
     )
     db.add(run)
     db.flush()
@@ -54,12 +81,16 @@ def ingest_items(
         else:
             needs_review += 1
         sid = res.service.id
+        price_kzt, price_orig, cur_orig = to_kzt(item.price, getattr(item, "currency", "KZT"))
         cur = batch.get(sid)
-        if cur is None or item.price < cur["price"]:
+        if cur is None or price_kzt < cur["price"]:
             batch[sid] = {
-                "price": item.price,
+                "price": price_kzt,
                 "raw_name": item.raw_name,
                 "confidence": res.confidence,
+                "duration_days": getattr(item, "duration_days", None),
+                "price_original": price_orig,
+                "currency_original": cur_orig,
             }
 
     new_prio = SOURCE_PRIORITY.get(source_type, 0)
@@ -81,6 +112,12 @@ def ingest_items(
                 existing.run_id = run.id
                 existing.match_confidence = data["confidence"]
                 existing.valid_from = valid_from
+                existing.parsed_at = datetime.utcnow()
+                existing.is_active = True
+                existing.duration_days = data["duration_days"]
+                existing.price_original = data["price_original"]
+                existing.currency_original = data["currency_original"]
+                record_price_history(db, clinic_id, sid, data["price"])
             # иначе оставляем официальную загрузку клиники как есть
             continue
         db.add(
@@ -94,8 +131,14 @@ def ingest_items(
                 currency="KZT",
                 match_confidence=data["confidence"],
                 valid_from=valid_from,
+                parsed_at=datetime.utcnow(),
+                is_active=True,
+                duration_days=data["duration_days"],
+                price_original=data["price_original"],
+                currency_original=data["currency_original"],
             )
         )
+        record_price_history(db, clinic_id, sid, data["price"])
 
     run.status = "normalized"
     run.message = f"Принято {len(items)}, услуг после дедупа {len(batch)}, на проверку {needs_review}"

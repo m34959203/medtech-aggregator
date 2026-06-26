@@ -2,6 +2,21 @@
 
 Base URL: `http://localhost:8000`. Интерактивная документация: `/docs` (Swagger), `/redoc`.
 
+## Авторизация (админ-зона)
+
+Админ-роуты защищены passwordless-токеном (`ADMIN_TOKEN`). Токен принимается из
+httpOnly-cookie `mt_admin` или заголовка `Authorization: Bearer <token>`. Если
+`ADMIN_TOKEN` не задан — админ-роуты закрыты (fail-closed), а не открыты.
+
+- `POST /api/auth/login` `{token}` → ставит cookie (вход). `GET /api/auth/me` → статус. `POST /api/auth/logout`.
+- **Только админ:** `/api/ingest/*` (кроме `preview`), `/api/export/*`, `/api/review/*`, `/api/ingest/stats`, `/api/portal/issue/*`, `POST /api/clinics`, `GET /api/feedback/price-reports`, `GET /api/leads`.
+- **Публичные:** поиск/сравнение/категории/города/услуги/онтология/история, чат, корзина-рецепт, `ingest/preview`, `POST` жалобы и лида, портал по токену клиники (`/api/portal/{token}/*`).
+- Вход в UI: `/admin?key=<ADMIN_TOKEN>` (magic-link) либо ввод ключа в форме.
+
+## Rate-limit
+
+Публичные POST и логин ограничены по IP (in-memory, скользящее окно): жалоба ~15/мин, лид ~10/мин, чат ~20/мин, корзина ~15/мин, `auth/login` ~10/мин. Превышение → `429` с `Retry-After`. Масштаб — вынести в Redis.
+
 ## Приём данных (Кейс 1)
 
 ### `POST /api/ingest/upload` — ① загрузка прайса
@@ -142,6 +157,24 @@ curl -X POST localhost:8000/api/chat -H "Content-Type: application/json" \
 - `POST /api/clinics` (тело `ClinicIn`) → `ClinicOut`
 - `GET /api/clinics/{id}` → `ClinicOut`
 - `GET /api/clinics/{id}/prices` → `PriceOut[]`
+
+## MedArchive — обработка архива прайсов партнёров (Кейс 2)
+
+Контракт «кто оказывает услугу и по какой цене» поверх единой платформы
+(партнёр = клиника, услуга = справочник). Приём архива — CLI
+`python -m app.archive_ingest <папка|zip> --catalog "Справочник услуг.xlsx" [--semantic-pass]`,
+выходной артефакт — `docs/quality-report.md` (отчёт о качестве обработки).
+
+- `GET /api/partners?city=` → партнёры с числом услуг.
+- `GET /api/partners/{id}/services` → все услуги партнёра с ценами **резидент/нерезидент**.
+- `GET /api/services/{id}/partners` → кто оказывает услугу, от дешёвой цены.
+- `GET /api/unmatched?limit=200` → очередь несопоставленных позиций (для операторов).
+- `POST /api/match` `{price_id, service_id}` — ручное сопоставление (запоминает синоним). **Только админ.**
+- `GET /api/archive/quality` → метрики дашборда: документов, позиций, % автонормализации, очередь, цель ≥70%.
+
+Нормализация трёхтировая: **код тарификатора** (точно) → нечётко (rapidfuzz) →
+семантика (эмбеддинги). Цены резидент/нерезидент извлекаются раздельно из
+DOCX (с принятием tracked changes), XLSX/XLS (многострочная шапка) и PDF.
 
 ## Служебное
 - `GET /health` → `{"status":"ok"}`

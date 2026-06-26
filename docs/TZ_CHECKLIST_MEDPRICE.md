@@ -1,0 +1,121 @@
+# Чек-лист соответствия ТЗ — Кейс 1 «MedPrice»
+
+Построчное соответствие коду. Ветка `feat/product-evolution`. Статусы: ✅ готово ·
+🟡 частично/с оговоркой · ⛔ не применимо к среде.
+
+> §3.4 в ТЗ помечен **«опционально (дают преимущество)»** — отмечен отдельно.
+
+## §2.1 Источники — реально задействованы с данными
+
+В БД после `python -m app.seed_real`: **30 источников · 26 клиник · 491 услуга · 8 городов**.
+
+| Источник из ТЗ | Способ | Статус | Что в проекте |
+|---|---|---|---|
+| **kdl.kz / kdlolymp.kz** | статика (адаптер `_kdl`) | ✅ задействован | живой парсинг 4 филиалов, ~280 цен |
+| **invitro.kz** | статика `/analizes/` (адаптер `_invitro`) | ✅ задействован | ~316 анализов с ценами |
+| **doq.kz** | REST API `api.doq.kz/api/v1/` (`doq_connector`) | ✅ задействован | 528 клиник × 12 городов; цена через `/doctors-meta/`; в сиде — 14 клиник по 4 городам |
+| **olymp.kz** | — | ⛔ недоступен | timeout с сервера; та же сеть КДЛ покрыта через kdlolymp |
+| helix.kz | Playwright | 🟡 возможен | редирект на helix.ru, частичный рендер |
+| medel.kz / mck.kz | Playwright | 🟡 возможен | SPA/заглушка |
+| aksai-clinic.kz | — | ⛔ | DNS не резолвится |
+| **сайты клиник РК (PDF/DOCX/HTML)** | upload + 103.kz | ✅ задействован | 4 реальных файла-прайса + **103.kz**: Гемотест/КДЛ/Рахат/AQmed/Smartmed (≈90–105 цен каждая) |
+
+Доп. инфраструктура: `ingestion/o103_harvester.py` (sitemap 103.kz ≈9248 поддоменов клиник для масштабирования), Playwright+chromium установлены и работают (`--no-sandbox`) для SPA-источников. Полный аудит источников по городам — в истории задач/отчёте команды.
+
+## §2.2 Структура собираемых данных
+
+| Поле ТЗ | Статус | Где |
+|---|---|---|
+| clinic_id | ✅ | `Price.clinic_id`, `Clinic.id` |
+| clinic_name | ✅ | `Clinic.name` (выдаётся в `PriceOffer.clinic_name`) |
+| city | ✅ | `Clinic.city` |
+| address | ✅ | `Clinic.address` |
+| phone | ✅ | `Clinic.phone` |
+| working_hours | ✅ | `Clinic.working_hours` (добавлено) |
+| source_url | ✅ | `PriceOffer.source_url` (сайт/URL источника) |
+| service_id | ✅ | `Price.service_id` |
+| service_name_raw | ✅ | `Price.raw_name` |
+| service_name_norm | ✅ | `ServiceCatalog.canonical_name` |
+| category (enum 4) | ✅ | `category.to_enum()` → лаборатория/приём врача/диагностика/процедура; `ServiceComparison.category_enum`, `/api/categories` |
+| price_kzt (decimal) | ✅ | `Price.price` Numeric(12,2) |
+| currency (KZT/USD→KZT) | ✅ | `service.to_kzt()` конвертирует USD; оригинал в `Price.price_original/currency_original` |
+| duration_days | ✅ | `Price.duration_days` (KDL-адаптер парсит «срок выполнения») |
+| parsed_at (datetime) | ✅ | `Price.parsed_at` |
+| is_active (bool) | ✅ | `Price.is_active` (+ авто-деактивация устаревших) |
+
+## §3.1 Модуль сбора (парсер)
+
+| Требование | Статус | Где |
+|---|---|---|
+| Автообход сайтов, извлечение прайсов | ✅ | `ingestion/web_scraper.py` (generic + адаптеры KDL/invitro/gemotest/103.kz/INVIVO/SAPA) |
+| Форматы HTML/PDF/DOCX/Excel | ✅ | `file_parser.detect_and_parse` (DOCX вкл. tracked changes — через `archive_extractor`) |
+| Дедупликация при повторе | ✅ | `service.ingest_items` (по clinic_id+service_id) |
+| Журнал ошибок (источник+причина) | ✅ | `IngestionRun(status=error, message=...)`, `scheduler._log_error` |
+| Raw-слой отдельно | ✅ | `IngestionRun.raw_content` (сырой HTML web_scrape + текст файлов) |
+| Запуск вручную / по расписанию | ✅ | POST `/api/ingest/*`, `scheduler.py` (cron `0 */6 * * *`) |
+
+## §3.2 Нормализация и справочник
+
+| Требование | Статус | Где |
+|---|---|---|
+| Приведение к единому справочнику | ✅ | `ingestion/normalizer.py` (fuzzy + семантика + LLM-арбитраж) |
+| Справочник: id, name, синонимы, категория | ✅ | `ServiceCatalog` |
+| Очередь unmatched | ✅ | `routers/review.py`, `/api/unmatched`, экран `/admin/review` |
+
+## §3.3 UI — поиск и сравнение
+
+| Требование | Статус | Где |
+|---|---|---|
+| Поиск с автодополнением | ✅ | `/api/suggest` + `SearchAutocomplete` |
+| Фильтр город | ✅ | `city` |
+| Фильтр категория | ✅ | `category` (по enum) |
+| Фильтр ценовой диапазон (min+max) | ✅ | `min_price`/`max_price` |
+| Фильтр рейтинг | ✅ | `min_rating` (+ `Clinic.rating`) |
+| Фильтр онлайн-запись | ✅ | `online_booking` (+ `Clinic.online_booking`) |
+| Результаты: цена/адрес/режим/источник | ✅ | `PriceOffer` + `OfferRow` |
+| Сорт по цене ↑↓ | ✅ | `price_asc/price_desc` |
+| Сорт по расстоянию | ✅ | `sort=distance` + geolocation (haversine) |
+| Сорт по дате обновления | ✅ | `sort=updated` |
+| Карточка клиники: все услуги/контакты/сайт | ✅ | `/api/clinics/{id}/profile` + `app/clinics/[id]` |
+| Дата последнего обновления цены | ✅ | `valid_from`/`parsed_at` + `freshnessLabel` |
+| Адаптивность | ✅ | Tailwind-брейкпоинты |
+
+## §4 Нефункциональные
+
+| Требование | Статус | Где |
+|---|---|---|
+| Обновление ≥1/сутки | ✅ | `scheduler` cron `0 */6 * * *` (каждые 6 ч). Роутинг: web_scrape (KDL/invitro/103/KazMedClinic) → `scrape_url`, api `doq://{city}/{clinic}` → `doq_connector.refresh`. Источники старше — деактивируются по свежести. |
+| UI-выдача < 3 c | ✅ | справочник мал, запрос индексирован |
+| Не выдавать данные >30 дней как актуальные | ✅ | фильтр свежести в `_build_comparison` + `scheduler.mark_stale_inactive` |
+| Масштабируемость источников | ✅ | реестр `Source` + адаптеры по домену без правки ядра |
+| Отказоустойчивость парсера | ✅ | per-source try/except в `scheduler`, robots-skip не валит остальные |
+| Хранение raw ≥90 дней | ✅ | `raw_retention_days=90`, `scheduler.purge_expired_raw` |
+
+## §3.4 Опционально (дают преимущество)
+
+| Функция | Статус |
+|---|---|
+| Карта клиник | ✅ (Яндекс.Карты — корректно для РК) |
+| История изменения цен | ✅ `PriceHistory` + тренд |
+| Сравнение таблицей | 🟡 список-сравнение + «рецепт» `/recipe` |
+| Подписка на изменение цены | ⛔ не реализовано (опционально) |
+| Маршрут 2GIS/Google | ⛔ не реализовано (опционально) |
+
+## §8 Ограничения и правила
+
+| Правило | Статус | Где |
+|---|---|---|
+| Парсинг только открытых данных без авторизации | ✅ | адаптеры берут публичные прайсы |
+| Не создавать чрезмерную нагрузку (задержки) | ✅ | `robots.crawl_delay` + пер-хост throttle |
+| **Соблюдение robots.txt** | ✅ | `ingestion/robots.py` (Protego, Google-спек wildcards) — единый шлюз `polite_get`, все GET проходят проверку |
+| Персональные данные не собираются | ✅ | собираются только услуги/цены/контакты клиник |
+
+## §6 Результаты команды
+
+| Артефакт | Статус |
+|---|---|
+| Рабочий MVP + README | ✅ |
+| БД с реальными данными (≥3 источника, ≥100 услуг) | ✅ **30 источников, 26 клиник, 491 услуга с ценой, 8 городов** (`python -m app.seed_real`) — см. `docs/quality-report-medprice.md` |
+| Справочник ≥50 нормализованных | ✅ 491 позиция (нормализатор + базовый каталог) |
+| Документация API (OpenAPI) | ✅ FastAPI `/docs` |
+| Презентация | 🟡 (есть дек проекта; отдельный MedPrice-дек — по запросу) |

@@ -1,7 +1,7 @@
 // Типы, отражающие контракт FastAPI-бэкенда (см. app/schemas.py).
 
 export type SourceType = "upload" | "web_scrape" | "api";
-export type SortOrder = "price_asc" | "price_desc";
+export type SortOrder = "price_asc" | "price_desc" | "updated" | "distance";
 
 export interface PriceOffer {
   clinic_id: number;
@@ -18,16 +18,62 @@ export interface PriceOffer {
   source_type: SourceType;
   match_confidence: number; // 0..1
   valid_from: string; // ISO date
+  // --- §3.3: расширенный контракт оффера ---
+  working_hours?: string | null;
+  website?: string | null;
+  source_url?: string | null;
+  rating?: number | null;
+  online_booking?: boolean | null;
+  duration_days?: number | null;
+  is_active?: boolean | null;
+  parsed_at?: string | null;
+  price_original?: number | null;
+  currency_original?: string | null;
 }
+
+export interface ServiceVariant {
+  service_id: number;
+  canonical_name: string;
+  label: string;
+  offers_count: number;
+  min_price: number;
+}
+
+export interface ServiceAttributes {
+  base_key?: string;
+  visit?: "primary" | "repeat" | "online" | "pediatric" | null;
+  biomaterial?: "blood" | "urine" | null;
+  variant?: string | null;
+  tags?: string[];
+}
+
+export interface PriceTrend {
+  points: { date: string; median: number }[];
+  change_pct: number;
+  direction: "up" | "down" | "flat";
+}
+
+export interface ServiceOntology {
+  code: string;
+  group: string;
+  osms: boolean;
+}
+
+export type CategoryEnum = "лаборатория" | "приём врача" | "диагностика" | "процедура";
 
 export interface ServiceComparison {
   service_id: number;
   canonical_name: string;
   category: string;
+  category_enum?: CategoryEnum | string | null;
   offers_count: number;
   min_price: number;
   max_price: number;
   offers: PriceOffer[];
+  attributes?: ServiceAttributes;
+  variants?: ServiceVariant[];
+  price_trend?: PriceTrend | null;
+  ontology?: ServiceOntology | null;
 }
 
 export interface ClinicOut {
@@ -42,7 +88,7 @@ export interface ClinicOut {
 }
 
 // --- Live-демо нормализатора ---
-export type NormMethod = "fuzzy" | "fuzzy-weak" | "llm" | "new";
+export type NormMethod = "fuzzy" | "fuzzy-weak" | "semantic" | "llm" | "new";
 
 export interface NormalizationPreview {
   raw: string;
@@ -73,6 +119,9 @@ export interface IngestionStats {
   prices: number;
   runs: number;
   needs_review: number;
+  empty_runs: number;
+  failed_runs: number;
+  reports_new: number;
   by_source: Record<string, number>;
 }
 
@@ -91,6 +140,93 @@ export interface BatchFileResult {
 export interface BatchResult {
   files: BatchFileResult[];
   totals: { files: number; ok: number; items: number; matched: number; needs_review: number };
+}
+
+// --- Спринт-2: ревью (human-in-the-loop) ---
+export interface ReviewItem {
+  price_id: number;
+  clinic_id: number;
+  clinic_name: string;
+  city: string;
+  service_id: number;
+  canonical_name: string;
+  raw_name: string;
+  price: number;
+  currency: string;
+  match_confidence: number;
+}
+
+export interface ReviewReport {
+  id: number;
+  clinic_name: string;
+  service: string;
+  price: number | null;
+  note: string;
+  created_at: string;
+}
+
+export interface ReviewQueue {
+  threshold: number;
+  low_confidence: ReviewItem[];
+  reports: ReviewReport[];
+}
+
+// --- Спринт-3: портал клиники (self-service) ---
+export interface PortalPrice {
+  price_id: number;
+  service: string;
+  category: string;
+  raw_name: string;
+  price: number;
+  currency: string;
+  source_type: SourceType;
+  confirmed: boolean;
+  valid_from: string;
+}
+
+export interface PortalView {
+  clinic: { id: number; name: string; city: string; district: string; address: string; phone: string };
+  prices: PortalPrice[];
+  confirmed_count: number;
+}
+
+// --- Спринт-3: корзина-рецепт ---
+export interface BasketCheapest {
+  clinic_id: number;
+  clinic_name: string;
+  city: string;
+  address: string;
+  phone: string;
+  price: number;
+}
+
+export interface BasketItem {
+  input: string;
+  service_id: number;
+  canonical: string;
+  confidence: number;
+  offers_count: number;
+  cheapest: BasketCheapest | null;
+}
+
+export interface BasketSingleClinic {
+  clinic_id: number;
+  clinic_name: string;
+  city: string;
+  phone: string;
+  address: string;
+  covered: number;
+  total: number;
+  missing: string[];
+}
+
+export interface BasketResult {
+  recognized: BasketItem[];
+  unrecognized: string[];
+  services_found: number;
+  total_cheapest_mixed: number;
+  best_single_clinic: BasketSingleClinic | null;
+  city: string | null;
 }
 
 // --- Чат-помощник ---
@@ -122,7 +258,39 @@ export interface SearchParams {
   q?: string;
   city?: string;
   category?: string;
+  min_price?: number;
   max_price?: number;
+  min_rating?: number;
+  online_booking?: boolean;
+  user_lat?: number;
+  user_lng?: number;
   sort?: SortOrder;
   limit?: number;
+}
+
+// --- §3.3: профиль клиники (все услуги) ---
+export interface ClinicProfileService {
+  name: string;
+  price: number;
+  currency: string;
+  duration_days: number | null;
+  source_type: SourceType;
+  valid_from: string;
+  is_active: boolean;
+}
+
+export interface ClinicProfile {
+  id: number;
+  name: string;
+  city: string;
+  address: string;
+  phone: string;
+  working_hours: string | null;
+  website: string | null;
+  rating: number | null;
+  online_booking: boolean;
+  lat: number | null;
+  lng: number | null;
+  services_count: number;
+  services: ClinicProfileService[];
 }

@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- **Семантическая нормализация (pgvector)**: эмбеддинги услуг (fastembed, multilingual), поиск по смыслу («кровь на сахар»→«Глюкоза»); на Postgres — pgvector `<=>`, иначе in-process; тир в нормализаторе + `/api/semantic/*`; грациозная деградация.
+- **Postgres как прод-рантайм**: `docker-compose.prod.yml` поднимает `medtech-db`; движок с `pool_pre_ping` и скромным пулом; скрипт переноса данных `copy_to_pg.py` (SQLite→PG).
+- **Rate-limit**: публичные POST (жалоба/лид/чат/корзина) и `auth/login` ограничены по IP (in-memory, `429` + `Retry-After`).
+- **Авторизация админ-зоны** (passwordless): `ADMIN_TOKEN` + httpOnly-cookie; закрыты `/admin`, ревью, экспорт, приём данных, выдача порталов; вход по magic-link `?key=`. Fail-closed при незаданном токене.
+- **Alembic-миграции**: схема управляется миграциями (`python -m app.migrate`), а не `create_all`; устойчиво к свежей/мигрированной/легаси БД; Postgres и SQLite.
 - **Кейс 1 — пакетный приём архива** (`POST /api/ingest/upload-batch`): .zip или несколько прайсов за раз, клиника по префиксу имени `«<id>_файл»` или общему `clinic_id`, единый отчёт по всем файлам.
 - **Экспорт каталога** (`GET /api/export/catalog?format=xlsx|csv`) — единый нормализованный свод как выходной артефакт обработки.
 - **Админ-дашборд приёма** (`/admin`): статистика, экспорт, пакетная загрузка, журнал `ingestion_runs` (`GET /api/ingest/stats`, `/api/ingest/runs`).

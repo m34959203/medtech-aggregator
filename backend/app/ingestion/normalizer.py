@@ -99,10 +99,34 @@ class Normalizer:
         self.catalog: list[ServiceCatalog] = self.db.query(ServiceCatalog).all()
         # индекс: ключ для fuzzy -> service
         self.index: dict[str, ServiceCatalog] = {}
+        # индекс по коду тарификатора (MedArchive): код -> [услуги] (код не уникален)
+        self.code_index: dict[str, list[ServiceCatalog]] = {}
         for svc in self.catalog:
             self.index[_clean(svc.canonical_name)] = svc
             for syn in (svc.synonyms or []):
                 self.index[_clean(str(syn))] = svc
+            code = getattr(svc, "tarificator_code", None)
+            if code:
+                self.code_index.setdefault(code, []).append(svc)
+
+    def match_archive(self, raw_name: str, code: str | None = None) -> tuple[ServiceCatalog | None, float]:
+        """READ-ONLY сопоставление позиции архива с ЦЕЛЕВЫМ справочником (он фиксирован).
+
+        СНАЧАЛА по коду тарификатора (точно, conf=1.0), иначе fuzzy. Ниже порога →
+        (None, conf): позиция уходит в очередь unmatched, БЕЗ создания новых услуг и
+        синонимов — официальный справочник 1286 услуг не загрязняется и приём быстр.
+        """
+        if code:
+            cands = self.code_index.get(code)
+            if cands:
+                if len(cands) == 1:
+                    return cands[0], 1.0
+                key = _clean(raw_name)  # один код у нескольких услуг — доуточняем по имени
+                return max(cands, key=lambda s: fuzz.token_set_ratio(key, _clean(s.canonical_name))), 1.0
+        svc, conf = self._fuzzy(raw_name)
+        if svc and conf >= self.threshold:
+            return svc, conf
+        return None, conf
 
     def _fuzzy(self, raw: str) -> tuple[ServiceCatalog | None, float]:
         if not self.index:
@@ -113,6 +137,35 @@ class Normalizer:
             return None, 0.0
         matched_key, score, _ = match
         return self.index[matched_key], score / 100.0
+
+    def match(self, raw: str) -> tuple[ServiceCatalog | None, float]:
+        """Read-only подбор услуги под сырое имя (fuzzy → семантика) — для корзины-рецепта."""
+        svc, conf = self._fuzzy(raw)
+        if conf >= self.threshold:
+            return svc, conf
+        from . import semantic
+        if semantic.available():
+            sid, score = semantic.match(self.db, raw)
+            if sid and score >= settings.semantic_threshold and score > conf:
+                return self.db.get(ServiceCatalog, sid), score
+        return svc, conf
+
+    def _semantic_match(self, raw_name: str) -> "MatchResult | None":
+        """Тир семантики: ближайшая по смыслу услуга, с теми же гардами вариантов."""
+        from . import semantic
+        if not semantic.available():
+            return None
+        sid, score = semantic.match(self.db, raw_name)
+        if not sid or score < settings.semantic_threshold:
+            return None
+        svc = self.db.get(ServiceCatalog, sid)
+        if not svc:
+            return None
+        rerouted = self._reroute_appointment(raw_name, svc, score) or self._reroute_analyte(raw_name, svc, score)
+        if rerouted:
+            return rerouted
+        self._add_synonym(svc, raw_name)
+        return MatchResult(svc, score, False)
 
     def _llm_decide(self, raw: str, candidates: list[ServiceCatalog]) -> dict | None:
         """Дизамбигуация через LLM (AlemLLM/Groq). None, если ключа нет/ошибка."""
@@ -185,6 +238,11 @@ class Normalizer:
             self._add_synonym(svc, raw_name)
             return MatchResult(svc, conf, False)
 
+        # 1.5 семантика (смысл, offline) — до LLM: ловит «кровь на сахар»→«Глюкоза»
+        sem = self._semantic_match(raw_name)
+        if sem:
+            return sem
+
         # 2. зона неоднозначности — спрашиваем LLM (если доступен)
         top_candidates = self._top_candidates(raw_name, k=5)
         decision = self._llm_decide(raw_name, top_candidates)
@@ -242,6 +300,19 @@ class Normalizer:
                 "confidence": round(conf, 3), "method": "fuzzy", "is_new": False,
                 "candidates": candidates,
             }
+
+        # 1.5 семантика (смысл, offline) — до LLM
+        from . import semantic
+        if semantic.available():
+            sid, score = semantic.match(self.db, raw_name)
+            if sid and score >= settings.semantic_threshold:
+                tgt = self.db.get(ServiceCatalog, sid)
+                if tgt:
+                    return {
+                        "raw": raw_name, "canonical": tgt.canonical_name, "category": tgt.category,
+                        "confidence": round(score, 3), "method": "semantic", "is_new": False,
+                        "candidates": candidates,
+                    }
 
         # 2. зона неоднозначности — LLM
         decision = self._llm_decide(raw_name, self._top_candidates(raw_name, k=5))

@@ -16,6 +16,7 @@ const SAMPLE = [
 const METHOD_META: Record<NormMethod, { label: string; cls: string }> = {
   fuzzy: { label: "Нечёткое сопоставление", cls: "bg-brand-50 text-brand-700 ring-brand-200" },
   "fuzzy-weak": { label: "Нечёткое (слабое)", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
+  semantic: { label: "Семантика (смысл)", cls: "bg-teal-50 text-teal-700 ring-teal-200" },
   llm: { label: "LLM-разрешение", cls: "bg-violet-50 text-violet-700 ring-violet-200" },
   new: { label: "Новая услуга", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
 };

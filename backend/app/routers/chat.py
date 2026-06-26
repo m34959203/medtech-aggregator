@@ -25,6 +25,7 @@ from sqlalchemy import distinct
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..ratelimit import rate_limit
 from ..db import get_db
 from ..ingestion.normalizer import _clean
 from ..models import Clinic, ServiceCatalog
@@ -289,7 +290,7 @@ def _fallback(db: Session, messages: list[ChatMessage]) -> ChatResponse:
     return ChatResponse(reply=reply, offers=_dedupe(offers), grounded=True, llm=False)
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(rate_limit("chat", 20))])
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if not req.messages:
         return ChatResponse(

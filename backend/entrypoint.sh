@@ -3,14 +3,18 @@ set -e
 
 mkdir -p /data
 
+# Схема — через Alembic-миграции (устойчиво к свежей / мигрированной / легаси БД),
+# вместо create_all. Идемпотентно: повторный старт = no-op.
+echo "[entrypoint] применяю миграции схемы..."
+python -m app.migrate
+
 # Демо-сид только по явному флагу SEED_DEMO=1 И только если БД пуста
 # (не стирает реальные загрузки при рестарте). По умолчанию прод стартует пустым.
 if [ "${SEED_DEMO:-0}" = "1" ] || [ "${SEED_DEMO:-}" = "true" ]; then
   if python - <<'PY'
 import sys
-from app.db import init_db, SessionLocal
+from app.db import SessionLocal
 from app.models import Clinic
-init_db()
 s = SessionLocal()
 empty = s.query(Clinic).count() == 0
 s.close()
@@ -22,9 +26,21 @@ PY
   else
     echo "[entrypoint] БД уже наполнена — пропускаю seed."
   fi
-else
-  echo "[entrypoint] SEED_DEMO не задан — прод стартует без демо-данных."
-  python -c "from app.db import init_db; init_db()"
 fi
+
+# Семантический индекс (pgvector) — лучшее усилие, не валит старт при отсутствии модели.
+python - <<'PY' || echo "[entrypoint] семантика пропущена"
+from app.db import SessionLocal
+from app.ingestion import semantic
+if semantic.available():
+    db = SessionLocal()
+    try:
+        n = semantic.reindex(db)
+        print(f"[entrypoint] семантика: проиндексировано услуг — {n}")
+    finally:
+        db.close()
+else:
+    print("[entrypoint] семантика выключена/недоступна — пропуск индексации")
+PY
 
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

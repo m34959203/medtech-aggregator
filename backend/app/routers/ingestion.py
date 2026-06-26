@@ -12,8 +12,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..ratelimit import rate_limit
 from ..db import get_db
-from ..models import Clinic, IngestionRun, Price, ServiceCatalog, Source
+from ..auth import require_admin
+from ..models import Clinic, IngestionRun, Price, PriceReport, ServiceCatalog, Source
 from ..schemas import IngestionResult, IngestionRunOut
 from ..ingestion import api_connector, web_scraper
 from ..ingestion.file_parser import detect_and_parse
@@ -30,7 +32,7 @@ def _require_clinic(db: Session, clinic_id: int) -> Clinic:
     return clinic
 
 
-@router.post("/upload", response_model=IngestionResult)
+@router.post("/upload", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 async def upload_pricelist(
     clinic_id: int = Form(...),
     file: UploadFile = File(...),
@@ -58,7 +60,7 @@ def _resolve_clinic_id(db: Session, filename: str, default: int | None) -> int |
     return default if (default and db.get(Clinic, default)) else None
 
 
-@router.post("/upload-batch")
+@router.post("/upload-batch", dependencies=[Depends(require_admin)])
 async def upload_batch(
     clinic_id: int | None = Form(None),
     files: list[UploadFile] = File(...),
@@ -133,7 +135,7 @@ async def upload_batch(
     }
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(require_admin)])
 def ingest_stats(db: Session = Depends(get_db)):
     """Сводка для админ-дашборда: объём каталога и качество приёма."""
     threshold = settings.match_confidence_threshold
@@ -148,6 +150,14 @@ def ingest_stats(db: Session = Depends(get_db)):
         "runs": db.query(func.count(IngestionRun.id)).scalar() or 0,
         "needs_review": db.query(func.count(Price.id))
         .filter(Price.match_confidence < threshold).scalar() or 0,
+        # Мониторинг скраперов: прогоны, отдавшие 0 позиций или упавшие — источник
+        # тихо ломается при редизайне сайта, иначе данные деградируют незаметно.
+        "empty_runs": db.query(func.count(IngestionRun.id))
+        .filter(IngestionRun.items_found == 0).scalar() or 0,
+        "failed_runs": db.query(func.count(IngestionRun.id))
+        .filter(IngestionRun.status == "error").scalar() or 0,
+        "reports_new": db.query(func.count(PriceReport.id))
+        .filter(PriceReport.status == "new").scalar() or 0,
         "by_source": by_source,
     }
 
@@ -158,20 +168,26 @@ class ScrapeIn(BaseModel):
     dynamic: bool = False
 
 
-@router.post("/scrape", response_model=IngestionResult)
+@router.post("/scrape", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 def scrape_site(payload: ScrapeIn, db: Session = Depends(get_db)):
     """② Pull: снять прайс с сайта клиники."""
     _require_clinic(db, payload.clinic_id)
     src = _ensure_source(db, payload.clinic_id, "web_scrape", payload.url)
+    raw = ""
     try:
-        items = (web_scraper.scrape_dynamic if payload.dynamic else web_scraper.scrape_url)(payload.url)
+        if payload.dynamic:
+            items = web_scraper.scrape_dynamic(payload.url)
+        else:
+            raw, items = web_scraper.scrape_url_raw(payload.url)
+    except web_scraper.RobotsDisallowed as e:
+        raise HTTPException(403, f"robots.txt сайта запрещает автосбор этого URL: {e.url}")
     except Exception as e:
         raise HTTPException(502, f"Ошибка автосбора: {e}")
     if not items:
         raise HTTPException(422, "С сайта не извлечено ни одной позиции прайса.")
     return ingest_items(
         db, clinic_id=payload.clinic_id, channel="pull", source_type="web_scrape",
-        items=items, fmt="html", source_id=src.id,
+        items=items, fmt="html", source_id=src.id, raw_content=raw,
     )
 
 
@@ -180,7 +196,7 @@ class ScrapeHtmlIn(BaseModel):
     html: str
 
 
-@router.post("/scrape-html", response_model=IngestionResult)
+@router.post("/scrape-html", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 def scrape_html(payload: ScrapeHtmlIn, db: Session = Depends(get_db)):
     """② Pull (демо без сети): распарсить переданный HTML прайса."""
     _require_clinic(db, payload.clinic_id)
@@ -198,7 +214,7 @@ class ApiIn(BaseModel):
     endpoint: str
 
 
-@router.post("/api", response_model=IngestionResult)
+@router.post("/api", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 def ingest_from_api(payload: ApiIn, db: Session = Depends(get_db)):
     """② Pull: тянем прайс из REST/JSON API клиники или агрегатора."""
     _require_clinic(db, payload.clinic_id)
@@ -232,7 +248,7 @@ class PreviewIn(BaseModel):
     names: list[str]
 
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[Depends(rate_limit("preview", 20))])
 def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
     """Сухой прогон умной нормализации БЕЗ записи в БД — для live-демо движка.
 
@@ -247,7 +263,7 @@ def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
     return {"results": [norm.preview(n) for n in names]}
 
 
-@router.post("/run-scheduled")
+@router.post("/run-scheduled", dependencies=[Depends(require_admin)])
 def run_scheduled():
     """Запустить автосбор по всем включённым pull-источникам (web_scrape/api)."""
     from ..scheduler import run_all_sources
@@ -255,6 +271,6 @@ def run_scheduled():
     return {"report": run_all_sources()}
 
 
-@router.get("/runs", response_model=list[IngestionRunOut])
+@router.get("/runs", response_model=list[IngestionRunOut], dependencies=[Depends(require_admin)])
 def list_runs(limit: int = 50, db: Session = Depends(get_db)):
     return db.query(IngestionRun).order_by(IngestionRun.created_at.desc()).limit(limit).all()

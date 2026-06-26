@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ChatResponse,
   ClinicOut,
+  ClinicProfile,
   IngestionRun,
   IngestionStats,
   NormalizationPreview,
@@ -68,24 +69,56 @@ export function search(params: SearchParams = {}, signal?: AbortSignal): Promise
     q: params.q,
     city: params.city,
     category: params.category,
+    min_price: params.min_price,
     max_price: params.max_price,
+    min_rating: params.min_rating,
+    online_booking: params.online_booking === undefined ? undefined : String(params.online_booking),
+    user_lat: params.user_lat,
+    user_lng: params.user_lng,
     sort: params.sort,
     limit: params.limit ?? 20,
   });
   return apiFetch<ServiceComparison[]>(`/api/search${query}`, { signal });
 }
 
+// Автодополнение строки поиска по официальному справочнику.
+export function suggest(q: string, limit = 10, signal?: AbortSignal): Promise<string[]> {
+  const query = buildQuery({ q, limit });
+  return apiFetch<string[]>(`/api/suggest${query}`, { signal });
+}
+
+export interface CompareOpts {
+  city?: string;
+  min_price?: number;
+  max_price?: number;
+  min_rating?: number;
+  online_booking?: boolean;
+  user_lat?: number;
+  user_lng?: number;
+  sort?: SortOrder;
+}
+
 export function compare(
   serviceId: number,
-  opts: { city?: string; max_price?: number; sort?: SortOrder } = {},
+  opts: CompareOpts = {},
   signal?: AbortSignal,
 ): Promise<ServiceComparison> {
   const query = buildQuery({
     city: opts.city,
+    min_price: opts.min_price,
     max_price: opts.max_price,
+    min_rating: opts.min_rating,
+    online_booking: opts.online_booking === undefined ? undefined : String(opts.online_booking),
+    user_lat: opts.user_lat,
+    user_lng: opts.user_lng,
     sort: opts.sort,
   });
   return apiFetch<ServiceComparison>(`/api/compare/${serviceId}${query}`, { signal });
+}
+
+// Профиль клиники со всеми услугами.
+export function getClinicProfile(id: number, signal?: AbortSignal): Promise<ClinicProfile> {
+  return apiFetch<ClinicProfile>(`/api/clinics/${id}/profile`, { signal });
 }
 
 export function getCategories(signal?: AbortSignal): Promise<string[]> {
@@ -98,6 +131,12 @@ export function getCities(signal?: AbortSignal): Promise<string[]> {
 
 export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
   return apiFetch<ClinicOut[]>("/api/clinics", { signal });
+}
+
+export function getServices(
+  signal?: AbortSignal,
+): Promise<{ id: number; canonical_name: string; category: string }[]> {
+  return apiFetch("/api/services?limit=200", { signal });
 }
 
 export function previewNormalization(
@@ -131,6 +170,132 @@ export function uploadBatch(files: File[], clinicId?: number): Promise<BatchResu
 // Прямая ссылка на скачивание (same-origin: /api проксируется Next-ом на бэкенд).
 export function catalogExportUrl(format: "xlsx" | "csv"): string {
   return `/api/export/catalog?format=${format}`;
+}
+
+// --- Спринт-2: ревью и лиды ---
+import type { ReviewQueue } from "./types";
+
+export function getReviewQueue(signal?: AbortSignal): Promise<ReviewQueue> {
+  return apiFetch<ReviewQueue>("/api/review/queue", { signal });
+}
+
+export function reviewPrice(
+  priceId: number,
+  action: "confirm" | "reassign" | "reject",
+  targetServiceId?: number,
+): Promise<unknown> {
+  return apiFetch(`/api/review/price/${priceId}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ action, target_service_id: targetServiceId }),
+  });
+}
+
+export function reviewReport(reportId: number, status: "reviewed" | "fixed"): Promise<unknown> {
+  return apiFetch(`/api/review/report/${reportId}`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function createLead(lead: {
+  clinic_id?: number;
+  clinic_name?: string;
+  service?: string;
+  price?: number;
+  name?: string;
+  phone?: string;
+}): Promise<unknown> {
+  return apiFetch("/api/leads", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(lead),
+  });
+}
+
+// --- Безопасность: админ-авторизация (passwordless токен → httpOnly cookie) ---
+export function authMe(signal?: AbortSignal): Promise<{ authenticated: boolean; configured: boolean }> {
+  return apiFetch("/api/auth/me", { signal });
+}
+
+export function authLogin(token: string): Promise<{ ok: boolean }> {
+  return apiFetch("/api/auth/login", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function authLogout(): Promise<unknown> {
+  return apiFetch("/api/auth/logout", { method: "POST" });
+}
+
+// --- Спринт-3: корзина-рецепт ---
+import type { BasketResult, PortalView } from "./types";
+
+export function recommendBasket(input: {
+  text?: string;
+  names?: string[];
+  city?: string;
+}): Promise<BasketResult> {
+  return apiFetch<BasketResult>("/api/basket/recommend", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function recommendBasketFile(file: File, city?: string): Promise<BasketResult> {
+  const form = new FormData();
+  form.append("file", file);
+  if (city) form.append("city", city);
+  return apiFetch<BasketResult>("/api/basket/recommend-file", { method: "POST", body: form });
+}
+
+// --- Спринт-3: портал клиники ---
+
+export function issuePortalAccess(
+  clinicId: number,
+): Promise<{ clinic_id: number; clinic_name: string; token: string; portal_path: string }> {
+  return apiFetch(`/api/portal/issue/${clinicId}`, { method: "POST" });
+}
+
+export function getPortal(token: string, signal?: AbortSignal): Promise<PortalView> {
+  return apiFetch<PortalView>(`/api/portal/${token}`, { signal });
+}
+
+export function editPortalPrice(token: string, priceId: number, price: number): Promise<unknown> {
+  return apiFetch(`/api/portal/${token}/price/${priceId}`, {
+    method: "PATCH",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ price }),
+  });
+}
+
+export function confirmAllPortal(token: string): Promise<{ confirmed: number }> {
+  return apiFetch(`/api/portal/${token}/confirm-all`, { method: "POST" });
+}
+
+export function uploadPortalPricelist(token: string, file: File): Promise<unknown> {
+  const form = new FormData();
+  form.append("file", file);
+  return apiFetch(`/api/portal/${token}/upload`, { method: "POST", body: form });
+}
+
+// --- Петля обратной связи «цена неверная» ---
+export function reportPrice(report: {
+  clinic_id?: number;
+  clinic_name?: string;
+  service?: string;
+  price?: number;
+  note?: string;
+}): Promise<unknown> {
+  return apiFetch("/api/feedback/price-report", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(report),
+  });
 }
 
 export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {

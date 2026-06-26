@@ -30,3 +30,6 @@ pgdata/
 
 # Uploads runtime
 backend/uploads/
+
+# MedArchive dev-фикстуры (реальные прайсы партнёров — не в git)
+.archive_samples/

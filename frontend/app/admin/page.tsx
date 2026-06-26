@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   catalogExportUrl,
   getIngestionRuns,
   getIngestionStats,
+  issuePortalAccess,
   uploadBatch,
 } from "@/lib/api";
 import type { BatchResult, IngestionRun, IngestionStats } from "@/lib/types";
@@ -45,6 +47,12 @@ export default function AdminPage() {
           Пакетная обработка архива прайсов клиник, экспорт единого каталога и
           журнал всех прогонов нормализации.
         </p>
+        <Link
+          href="/admin/review"
+          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline"
+        >
+          → Очередь на проверку (спорные сопоставления и жалобы)
+        </Link>
       </header>
 
       {error && (
@@ -53,14 +61,42 @@ export default function AdminPage() {
         </div>
       )}
 
+      <HealthBanner stats={stats} />
+
       <StatsGrid stats={stats} />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <ExportCard />
         <BatchUploadCard onDone={refresh} />
+        <PortalIssueCard />
       </div>
 
       <RunsTable runs={runs} />
+    </div>
+  );
+}
+
+function HealthBanner({ stats }: { stats: IngestionStats | null }) {
+  if (!stats) return null;
+  const alerts: string[] = [];
+  if (stats.failed_runs > 0) alerts.push(`${stats.failed_runs} прогонов с ошибкой`);
+  if (stats.empty_runs > 0) alerts.push(`${stats.empty_runs} прогонов вернули 0 позиций (источник мог сломаться)`);
+  if (stats.reports_new > 0) alerts.push(`${stats.reports_new} жалоб «цена неверная» на проверку`);
+  if (alerts.length === 0) {
+    return (
+      <div className="mb-6 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-100">
+        ✓ Конвейер здоров: ошибок и пустых прогонов нет.
+      </div>
+    );
+  }
+  return (
+    <div className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-inset ring-amber-100">
+      <p className="font-medium">⚠ Требует внимания:</p>
+      <ul className="mt-1 list-inside list-disc">
+        {alerts.map((a) => (
+          <li key={a}>{a}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -92,6 +128,55 @@ function StatsGrid({ stats }: { stats: IngestionStats | null }) {
           {c.hint && <p className="text-xs text-ink-400">{c.hint}</p>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function PortalIssueCard() {
+  const [clinicId, setClinicId] = useState("");
+  const [link, setLink] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="card p-5">
+      <h2 className="text-base font-semibold text-ink-900">Портал клиники</h2>
+      <p className="mt-1 text-sm text-ink-500">
+        Выдать клинике ссылку для самостоятельной проверки и подтверждения цен
+        (автосбор → партнёрский актив).
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <input
+          type="number"
+          value={clinicId}
+          onChange={(e) => setClinicId(e.target.value)}
+          placeholder="ID клиники"
+          className="field max-w-[10rem] py-2 text-sm"
+        />
+        <button
+          type="button"
+          disabled={!clinicId}
+          onClick={async () => {
+            setErr(null);
+            setLink(null);
+            try {
+              const res = await issuePortalAccess(Number(clinicId));
+              setLink(res.portal_path);
+            } catch {
+              setErr("Клиника не найдена.");
+            }
+          }}
+          className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+        >
+          Выдать ссылку
+        </button>
+      </div>
+      {link && (
+        <div className="mt-3 rounded-lg bg-ink-50 p-3 text-sm ring-1 ring-inset ring-ink-100">
+          <Link href={link} className="break-all font-medium text-brand-700 hover:underline">
+            {link}
+          </Link>
+        </div>
+      )}
+      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
     </div>
   );
 }
@@ -151,7 +236,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
     <div className="card p-5">
       <h2 className="text-base font-semibold text-ink-900">Пакетный приём архива</h2>
       <p className="mt-1 text-sm text-ink-500">
-        Загрузите .zip или несколько прайсов (xlsx/csv/pdf). Клиника берётся из
+        Загрузите .zip или несколько прайсов (xlsx/csv/pdf/скан/фото — OCR). Клиника берётся из
         префикса имени файла <code className="rounded bg-ink-100 px-1">«&lt;id&gt;_прайс.xlsx»</code>
         или из общего поля ниже.
       </p>
@@ -161,7 +246,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
           ref={inputRef}
           type="file"
           multiple
-          accept=".zip,.xlsx,.xls,.csv,.pdf"
+          accept=".zip,.xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.tiff,.webp"
           onChange={(e) => {
             setFiles(Array.from(e.target.files ?? []));
             setResult(null);

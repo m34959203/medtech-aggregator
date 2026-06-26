@@ -217,3 +217,16 @@ def test_glucose_tolerance_is_separate(db):
     ggt = n.normalize("Глюкозотолерантный тест")
     assert ggt.service.canonical_name == "Глюкозотолерантный тест"
     assert ggt.service.id != blood.service.id
+
+
+def test_price_history_records_only_on_change(db):
+    """История пишется только при ИЗМЕНЕНИИ цены (дедуп по последней)."""
+    from app.ingestion.service import record_price_history
+    from app.models import PriceHistory
+    oak = db.query(ServiceCatalog).filter(ServiceCatalog.canonical_name == "Общий анализ крови").first()
+    record_price_history(db, 1, oak.id, 2000.0)
+    record_price_history(db, 1, oak.id, 2000.0)  # та же цена — не пишем
+    record_price_history(db, 1, oak.id, 2500.0)  # изменилась — пишем
+    db.commit()
+    rows = db.query(PriceHistory).filter(PriceHistory.clinic_id == 1).all()
+    assert [float(r.price) for r in rows] == [2000.0, 2500.0]

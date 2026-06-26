@@ -54,6 +54,35 @@ medtech-platform/
 
 ---
 
+## MedArchive — обработка архива прайсов партнёров «под капотом»
+
+Та же платформа умеет обрабатывать **готовый архив прайс-листов клиник-партнёров**
+на **официальном справочнике услуг** (1286 позиций с кодом тарификатора): разобрать
+разнородные документы, извлечь цены с тарифами **резидент/нерезидент**, нормализовать
+к справочнику и собрать верифицированную базу «кто оказывает услугу и по какой цене».
+
+| Возможность | Как |
+|---|---|
+| Форматы | DOCX (с **принятием tracked changes**), XLSX/XLS (многострочная шапка, все листы), PDF (таблицы → реконструкция по координатам слов) |
+| Тарифы | раздельно **резидент / нерезидент** |
+| Нормализация | **code-first** по коду тарификатора (точно → 100%) → нечётко (rapidfuzz) → семантика (эмбеддинги, авто только при ≥0.85 — точность важнее охвата) |
+| Валидации | цена>0, нерезидент≥резидент, аномалия цены >50% к прошлой версии, версионирование |
+| Артефакт | **отчёт о качестве обработки** (`docs/quality-report.md`): документы, % автонормализации, очередь |
+
+```bash
+# приём архива + загрузка справочника + отчёт качества (+опц. семантический проход)
+python -m app.archive_ingest <папка|архив.zip> \
+    --catalog "Справочник услуг.xlsx" --semantic-pass \
+    --report docs/quality-report.md
+```
+
+API-контракт MedArchive: `/api/partners`, `/api/partners/{id}/services` (с резидент/нерезидент),
+`/api/services/{id}/partners`, `/api/unmatched`, `POST /api/match`, `/api/archive/quality`.
+Очередь несопоставленных позиций — обучающая: каждый ручной `POST /match` запоминается
+синонимом, и охват автонормализации растёт с использованием.
+
+---
+
 ## 🤖 Чат-помощник пациента
 
 Диалоговый поиск по витрине: пациент спрашивает «где дешевле общий анализ крови в Алматы?» — бот находит и сравнивает клиники. Ключевой принцип — **бот не выдумывает цены**: это надстройка над агрегатором, а не «всезнающий» LLM.
@@ -73,7 +102,10 @@ medtech-platform/
 cd backend
 pip install -r requirements.txt          # или python -m venv .venv && ...
 cp .env.example .env                      # по умолчанию SQLite — запускается сразу
+python -m app.migrate                     # схема через Alembic-миграции (идемпотентно)
 python -m app.seed                        # демо: 6 клиник, справочник, 33 цены
+python -m app.seed_real                   # РЕАЛЬНЫЕ данные: живой парсинг KDL-Olymp
+                                          # (с соблюдением robots.txt) + реальные прайсы клиник
 python make_samples.py                    # сгенерировать демо-прайсы в sample_data/
 uvicorn app.main:app --reload             # API на http://localhost:8000
 ```
@@ -93,11 +125,20 @@ cp .env.example .env.local                # NEXT_PUBLIC_API_URL + NEXT_PUBLIC_YA
 npm run dev                                # витрина на http://localhost:3000
 ```
 
-### Postgres вместо SQLite (опционально)
+### Postgres (прод-рантайм; в dev — опционально)
+SQLite хватает для разработки. Прод (`docker-compose.prod.yml`) поднимает Postgres
+(`medtech-db`); схема применяется миграциями на старте (`entrypoint → python -m app.migrate`).
 ```bash
-docker compose up -d db
+docker compose up -d db                     # dev: локальный Postgres на :5544
 # в backend/.env: DATABASE_URL=postgresql+psycopg2://medtech:medtech@localhost:5544/medtech
+python -m app.migrate                       # применить схему
 ```
+**Перенос данных SQLite → Postgres** (разовый cutover):
+```bash
+python copy_to_pg.py sqlite:////data/medtech.db \
+  postgresql+psycopg2://medtech:medtech@medtech-db:5432/medtech
+```
+Прод-env: `POSTGRES_PASSWORD`, `ADMIN_TOKEN` (иначе админ-зона закрыта), `COOKIE_SECURE=true`.
 
 ---
 
