@@ -89,6 +89,22 @@ def _analyte_variant(raw: str, canonical: str) -> str | None:
     return None
 
 
+# Биоматериал по умолчанию — КРОВЬ/сыворотка (TASK 3). Если сырое имя про обычный
+# аналит (без «моча/urine»), а лучший матч оказался мочевым вариантом — это ошибка
+# (token_set уравнивает «Ферритин» и «Ферритин в моче»). Возвращаем имя кровяного
+# варианта, чтобы перематчиться на него.
+def _prefer_blood(raw: str, canonical: str) -> str | None:
+    low = (raw or "").lower()
+    cl = (canonical or "").lower()
+    if re.search(r"моч|urine", low):
+        return None  # сырое имя само про мочу — мочевой вариант верен
+    if "моч" not in cl:
+        return None  # матч и так не мочевой
+    base = re.sub(r"\s*в\s*моче\b", "", canonical, flags=re.I)
+    base = re.sub(r"\s{2,}", " ", base).strip(" ,;")
+    return base or None
+
+
 class Normalizer:
     def __init__(self, db: Session):
         self.db = db
@@ -361,3 +377,104 @@ class Normalizer:
                 seen.add(svc.id)
                 out.append(svc)
         return out
+
+    # ---- Строгий разбор строки (gate + декомпозиция + порог отказа) — TASK 1-4 ----
+    def match_one(self, raw: str) -> dict:
+        """READ-ONLY строгий матч ОДНОЙ атомарной строки. Ниже reject_floor —
+        status=unmatched (не тянем мусорный «лучший» с фиктивными 100%, TASK 2).
+        Гарды: моча/кровь по умолчанию кровь, повторный/онлайн приём отдельно."""
+        floor = settings.reject_floor
+        svc, conf = self._fuzzy(raw)
+        if svc and conf >= floor:
+            canonical, category = svc.canonical_name, svc.category
+            # guard: дефолт-кровь, если матч уехал в мочевой вариант
+            blood = _prefer_blood(raw, canonical)
+            if blood:
+                canonical = blood
+                alt = self.index.get(_clean(blood))
+                if alt:
+                    category = alt.category
+            # guard: мочевой/толерантный/приёмный вариант
+            if svc.category == "Анализы":
+                av = _analyte_variant(raw, svc.canonical_name)
+                if av and av.strip().lower() != svc.canonical_name.strip().lower():
+                    canonical = av
+            elif svc.category == "Приём врача":
+                mod = _appt_modifier(raw)
+                if mod and not _appt_modifier(svc.canonical_name):
+                    canonical = _derive_appt_name(svc.canonical_name, mod)
+            return {"canonical": canonical, "category": category,
+                    "confidence": round(conf, 3), "method": "fuzzy", "status": "matched"}
+        # семантика (смысл) — тоже под порогом отказа
+        from . import semantic
+        if semantic.available():
+            sid, score = semantic.match(self.db, raw)
+            if sid and score >= max(settings.semantic_threshold, floor):
+                tgt = self.db.get(ServiceCatalog, sid)
+                if tgt:
+                    return {"canonical": tgt.canonical_name, "category": tgt.category,
+                            "confidence": round(score, 3), "method": "semantic", "status": "matched"}
+        # ниже порога — честный отказ, НЕ принудительная привязка
+        return {"canonical": "—", "category": None,
+                "confidence": round(conf, 3), "method": "none", "status": "unmatched"}
+
+    def analyze(self, raw: str) -> dict:
+        """Полный разбор строки направления/прайса: gate (шум) → декомпозиция панелей
+        → строгий матч каждой части. Возвращает {raw, kind, reason, items[]}."""
+        from . import line_gate, panels
+        kind, reason = line_gate.classify_line(raw)
+        if kind == "noise":
+            return {"raw": raw, "kind": "noise", "reason": reason, "items": []}
+        parts = panels.decompose(raw)
+        if parts:
+            # панель/составное — источник истины разбиения; части как услуги
+            items = [{"canonical": p, "category": "Анализы", "confidence": 1.0,
+                      "method": "panel", "status": "matched"} for p in parts]
+            return {"raw": raw, "kind": "service", "reason": "", "items": items}
+        return {"raw": raw, "kind": "service", "reason": "", "items": [self.match_one(raw)]}
+
+
+def sanitize_synonyms(db: Session) -> int:
+    """Чистка загрязнённых синонимов (последствие прошлых слабых матчей: у «Са+»
+    синоним «АЛТ», у «Витамин D» — «Ферритин» и т.п.). Удаляем синоним S из услуги X, если:
+      • S дублирует canonical X; ИЛИ
+      • S совпадает с canonical ДРУГОЙ услуги (кросс-привязка); ИЛИ
+      • S — короткая аббревиатура, НЕ являющаяся инициалами X и не похожая на X.
+    Возвращает число удалённых синонимов."""
+    cats = db.query(ServiceCatalog).all()
+    by_canon: dict[str, ServiceCatalog] = {_clean(c.canonical_name): c for c in cats}
+    removed = 0
+
+    def is_acronym(short: str, canonical: str) -> bool:
+        words = [w for w in re.split(r"[\s/]+", _clean(canonical)) if w]
+        initials = "".join(w[0] for w in words)
+        return short.replace(" ", "") in (initials, initials[: len(short)])
+
+    def in_canonical(short: str, canonical: str) -> bool:
+        """Аббревиатура буквально присутствует в названии (напр. «(HbA1c)») —
+        даже если _clean срезал её из скобок. Тогда синоним легитимен."""
+        canon_alnum = re.sub(r"[^0-9a-zа-яё]", "", canonical.lower())
+        return short.replace(" ", "") in canon_alnum
+
+    for x in cats:
+        kept, changed = [], False
+        xck = _clean(x.canonical_name)
+        for syn in (x.synonyms or []):
+            s = str(syn)
+            cs = _clean(s)
+            if not cs or cs == xck:
+                removed += 1; changed = True; continue
+            other = by_canon.get(cs)
+            if other is not None and other.id != x.id:
+                removed += 1; changed = True; continue  # принадлежит другой услуге
+            if len(cs) <= 5 and " " not in cs:
+                if not is_acronym(cs, x.canonical_name) and \
+                   not in_canonical(cs, x.canonical_name) and \
+                   fuzz.token_set_ratio(cs, xck) < 50:
+                    removed += 1; changed = True; continue  # чужая аббревиатура
+            kept.append(s)
+        if changed:
+            x.synonyms = kept
+    if removed:
+        db.commit()
+    return removed

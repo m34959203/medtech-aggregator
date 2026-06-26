@@ -248,19 +248,18 @@ class PreviewIn(BaseModel):
     names: list[str]
 
 
-@router.post("/preview", dependencies=[Depends(rate_limit("preview", 20))])
+@router.post("/preview", dependencies=[Depends(require_admin), Depends(rate_limit("preview", 20))])
 def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
-    """Сухой прогон умной нормализации БЕЗ записи в БД — для live-демо движка.
+    """Сухой прогон умной нормализации БЕЗ записи в БД (admin-инструмент).
 
-    Жюри вводит любые «кривые» названия → видит, как движок (fuzzy + LLM) сам
-    сводит их к справочнику с уверенностью и методом. Доказывает, что это не
-    хардкод: вход контролирует пользователь.
-    """
+    Полный разбор строк направления: входной фильтр шума (gate) → декомпозиция
+    панелей → строгий матч с порогом отказа. Ничего не мутирует. Возвращает на
+    каждую строку {raw, kind, reason, items[]} (см. Normalizer.analyze)."""
     names = [n.strip() for n in payload.names if n and n.strip()][:30]
     if not names:
-        raise HTTPException(422, "Передайте хотя бы одно название услуги.")
-    norm = Normalizer(db)  # snapshot справочника; preview() ничего не мутирует
-    return {"results": [norm.preview(n) for n in names]}
+        raise HTTPException(422, "Передайте хотя бы одну строку.")
+    norm = Normalizer(db)  # snapshot справочника; analyze() ничего не мутирует
+    return {"results": [norm.analyze(n) for n in names]}
 
 
 @router.post("/run-scheduled", dependencies=[Depends(require_admin)])
