@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
 
 class PriceReportIn(BaseModel):
-    clinic_id: int | None = None
+    clinic_id: uuid.UUID | None = None
     clinic_name: str = ""
     service: str = ""
     price: float | None = None
@@ -29,7 +31,7 @@ class PriceReportIn(BaseModel):
 class PriceReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    clinic_id: int | None
+    clinic_id: uuid.UUID | None
     clinic_name: str
     service: str
     price: float | None

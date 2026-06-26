@@ -14,8 +14,9 @@ export default async function ServicePage({
 }) {
   const { id } = await params;
   const { city = "" } = await searchParams;
-  const serviceId = Number(id);
-  if (!Number.isFinite(serviceId)) notFound();
+  // service_id — uuid-строка из URL (§2.2), без приведения к числу.
+  const serviceId = id;
+  if (!serviceId) notFound();
 
   let initial;
   try {

@@ -29,11 +29,11 @@ function loadYmaps(): Promise<any> {
 
 interface Props {
   offers: PriceOffer[];
-  cheapestClinicId?: number;
+  cheapestClinicId?: string; // uuid клиники (§2.2)
   // Клиника, выбранная в списке карточек: на неё центрируемся и открываем балун.
-  activeClinicId?: number;
+  activeClinicId?: string; // uuid клиники (§2.2)
   // Обратная связь: клик по метке выделяет карточку в списке.
-  onSelectClinic?: (clinicId: number) => void;
+  onSelectClinic?: (clinicId: string) => void;
 }
 
 export default function ClinicMap({
@@ -45,7 +45,7 @@ export default function ClinicMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   // clinic_id -> placemark, чтобы открывать балун без пересборки карты.
-  const placemarksRef = useRef<Map<number, any>>(new Map());
+  const placemarksRef = useRef<Map<string, any>>(new Map());
   // Держим актуальный колбэк, не пересобирая карту при его изменении.
   const onSelectRef = useRef(onSelectClinic);
   onSelectRef.current = onSelectClinic;

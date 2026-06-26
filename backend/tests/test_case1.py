@@ -32,8 +32,12 @@ def client():
         ServiceCatalog(canonical_name="Приём терапевта", category="Приём врача",
                        synonyms=["Первичный приём терапевта"]),
     ])
-    s.add(Clinic(id=1, name="Клиника А", city="Алматы", district="", address="ул. Абая, 1", phone="+7"))
-    s.add(Clinic(id=2, name="Клиника Б", city="Астана", district="", address="пр. Мира, 2", phone="+7"))
+    a = Clinic(name="Клиника А", city="Алматы", district="", address="ул. Абая, 1", phone="+7")
+    b = Clinic(name="Клиника Б", city="Астана", district="", address="пр. Мира, 2", phone="+7")
+    s.add(a)
+    s.add(b)
+    s.flush()
+    cid1, cid2 = a.id, b.id
     s.commit()
     s.close()
 
@@ -45,7 +49,8 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
+    c = TestClient(app); c.cid1 = cid1; c.cid2 = cid2
+    yield c
     app.dependency_overrides.clear()
 
 
@@ -57,8 +62,8 @@ def test_batch_zip_one_report(client):
     """Zip из двух прайсов разных клиник (префикс <id>_) → один отчёт по всем."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("1_lab.csv", _csv("ОАК;2500\n"))
-        zf.writestr("2_doctors.csv", _csv("Первичный приём терапевта;6000\n"))
+        zf.writestr(f"{client.cid1}_lab.csv", _csv("ОАК;2500\n"))
+        zf.writestr(f"{client.cid2}_doctors.csv", _csv("Первичный приём терапевта;6000\n"))
     buf.seek(0)
     r = client.post(
         "/api/ingest/upload-batch",
@@ -70,26 +75,26 @@ def test_batch_zip_one_report(client):
     assert data["totals"]["ok"] == 2
     assert data["totals"]["items"] == 2
     clinics = {f["clinic_id"] for f in data["files"]}
-    assert clinics == {1, 2}  # каждый файл ушёл в свою клинику по префиксу
+    assert clinics == {str(client.cid1), str(client.cid2)}  # каждый файл ушёл в свою клинику по префиксу
 
 
 def test_batch_multiple_files_default_clinic(client):
     """Несколько файлов без префикса → общий clinic_id из формы."""
     r = client.post(
         "/api/ingest/upload-batch",
-        data={"clinic_id": "1"},
+        data={"clinic_id": str(client.cid1)},
         files=[
             ("files", ("lab.csv", _csv("ОАК;2400\n"), "text/csv")),
             ("files", ("more.csv", _csv("Первичный приём терапевта;5500\n"), "text/csv")),
         ],
     )
     assert r.status_code == 200, r.text
-    assert all(f.get("clinic_id") == 1 for f in r.json()["files"] if f["status"] == "ok")
+    assert all(f.get("clinic_id") == str(client.cid1) for f in r.json()["files"] if f["status"] == "ok")
 
 
 def test_export_catalog_xlsx_and_csv(client):
     # сначала зальём данные
-    client.post("/api/ingest/upload-batch", data={"clinic_id": "1"},
+    client.post("/api/ingest/upload-batch", data={"clinic_id": str(client.cid1)},
                 files=[("files", ("p.csv", _csv("ОАК;2400\n"), "text/csv"))])
     rx = client.get("/api/export/catalog?format=xlsx")
     assert rx.status_code == 200
@@ -103,7 +108,7 @@ def test_export_catalog_xlsx_and_csv(client):
 
 
 def test_stats_endpoint(client):
-    client.post("/api/ingest/upload-batch", data={"clinic_id": "1"},
+    client.post("/api/ingest/upload-batch", data={"clinic_id": str(client.cid1)},
                 files=[("files", ("p.csv", _csv("ОАК;2400\n"), "text/csv"))])
     st = client.get("/api/ingest/stats").json()
     assert st["clinics"] == 2 and st["services"] >= 2
@@ -118,9 +123,10 @@ def test_compare_exposes_attributes_and_variants(client):
     import io as _io, zipfile as _zip
     buf = _io.BytesIO()
     with _zip.ZipFile(buf, "w") as zf:
-        zf.writestr("1_lab.csv", _csv("Глюкоза (сахар крови);500\nГлюкоза в моче;700\n"))
+        zf.writestr(f"{client.cid1}_lab.csv", _csv("Глюкоза (сахар крови);500\nГлюкоза в моче;700\n"))
     buf.seek(0)
     r = client.post("/api/ingest/upload-batch",
+                    data={"clinic_id": str(client.cid1)},
                     files={"files": ("a.zip", buf.getvalue(), "application/zip")})
     assert r.status_code == 200, r.text
 
@@ -137,7 +143,7 @@ def test_compare_exposes_attributes_and_variants(client):
 
 def test_price_report_feedback_loop(client):
     r = client.post("/api/feedback/price-report", json={
-        "clinic_id": 1, "clinic_name": "Клиника А", "service": "ОАК", "price": 2500,
+        "clinic_id": str(client.cid1), "clinic_name": "Клиника А", "service": "ОАК", "price": 2500,
         "note": "на сайте дешевле",
     })
     assert r.status_code == 200, r.text
@@ -147,10 +153,10 @@ def test_price_report_feedback_loop(client):
 
 
 def test_lead_create_and_validation(client):
-    bad = client.post("/api/leads", json={"clinic_id": 1, "phone": "123"})
+    bad = client.post("/api/leads", json={"clinic_id": str(client.cid1), "phone": "123"})
     assert bad.status_code == 422  # короткий телефон
     ok = client.post("/api/leads", json={
-        "clinic_id": 1, "clinic_name": "Клиника А", "service": "ОАК",
+        "clinic_id": str(client.cid1), "clinic_name": "Клиника А", "service": "ОАК",
         "price": 2400, "name": "Иван", "phone": "+7 701 234 56 78",
     })
     assert ok.status_code == 200 and ok.json()["status"] == "new"
@@ -159,7 +165,7 @@ def test_lead_create_and_validation(client):
 
 def test_review_queue_and_confirm(client):
     # «чужая» позиция → новая услуга с низкой уверенностью → попадает в очередь
-    client.post("/api/ingest/upload-batch", data={"clinic_id": "1"},
+    client.post("/api/ingest/upload-batch", data={"clinic_id": str(client.cid1)},
                 files=[("files", ("p.csv", _csv("Криоконсервация эмбрионов;90000\n"), "text/csv"))])
     q = client.get("/api/review/queue").json()
     assert q["low_confidence"], "низко-уверенная позиция должна быть в очереди"

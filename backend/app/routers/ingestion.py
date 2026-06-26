@@ -1,6 +1,8 @@
 """Роуты приёма данных: загрузка файла (① push) и автосбор web/api (② pull)."""
 from __future__ import annotations
 
+import uuid
+
 import io
 import re
 import zipfile
@@ -25,7 +27,7 @@ from ..ingestion.service import ingest_items
 router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
 
 
-def _require_clinic(db: Session, clinic_id: int) -> Clinic:
+def _require_clinic(db: Session, clinic_id: uuid.UUID) -> Clinic:
     clinic = db.get(Clinic, clinic_id)
     if not clinic:
         raise HTTPException(404, "Клиника не найдена")
@@ -34,7 +36,7 @@ def _require_clinic(db: Session, clinic_id: int) -> Clinic:
 
 @router.post("/upload", response_model=IngestionResult, dependencies=[Depends(require_admin)])
 async def upload_pricelist(
-    clinic_id: int = Form(...),
+    clinic_id: uuid.UUID = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -50,19 +52,24 @@ async def upload_pricelist(
     )
 
 
-def _resolve_clinic_id(db: Session, filename: str, default: int | None) -> int | None:
-    """Клиника для файла из архива: префикс «<id>_имя.ext», иначе общий clinic_id."""
-    m = re.match(r"^\s*(\d+)[ _\-]", filename)
+def _resolve_clinic_id(db: Session, filename: str, default: uuid.UUID | None) -> uuid.UUID | None:
+    """Клиника для файла из архива: префикс «<uuid>_имя.ext», иначе общий clinic_id.
+    §2.2: id клиник — uuid, поэтому префикс — uuid (36 символов hex+дефисы)."""
+    m = re.match(r"^\s*([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                 r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})[ _\-]", filename)
     if m:
-        cid = int(m.group(1))
-        if db.get(Clinic, cid):
+        try:
+            cid = uuid.UUID(m.group(1))
+        except ValueError:
+            cid = None
+        if cid and db.get(Clinic, cid):
             return cid
     return default if (default and db.get(Clinic, default)) else None
 
 
 @router.post("/upload-batch", dependencies=[Depends(require_admin)])
 async def upload_batch(
-    clinic_id: int | None = Form(None),
+    clinic_id: uuid.UUID | None = Form(None),
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
@@ -163,7 +170,7 @@ def ingest_stats(db: Session = Depends(get_db)):
 
 
 class ScrapeIn(BaseModel):
-    clinic_id: int
+    clinic_id: uuid.UUID
     url: str
     dynamic: bool = False
 
@@ -192,7 +199,7 @@ def scrape_site(payload: ScrapeIn, db: Session = Depends(get_db)):
 
 
 class ScrapeHtmlIn(BaseModel):
-    clinic_id: int
+    clinic_id: uuid.UUID
     html: str
 
 
@@ -210,7 +217,7 @@ def scrape_html(payload: ScrapeHtmlIn, db: Session = Depends(get_db)):
 
 
 class ApiIn(BaseModel):
-    clinic_id: int
+    clinic_id: uuid.UUID
     endpoint: str
 
 
@@ -231,7 +238,7 @@ def ingest_from_api(payload: ApiIn, db: Session = Depends(get_db)):
     )
 
 
-def _ensure_source(db: Session, clinic_id: int, type_: str, url: str) -> Source:
+def _ensure_source(db: Session, clinic_id: uuid.UUID, type_: str, url: str) -> Source:
     src = (
         db.query(Source)
         .filter(Source.clinic_id == clinic_id, Source.type == type_, Source.url_or_endpoint == url)

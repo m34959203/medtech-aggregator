@@ -18,17 +18,21 @@ def client():
     Base.metadata.create_all(engine)
     TS = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     s = TS()
-    he4 = ServiceCatalog(id=1, canonical_name="HE4", category="Анализы", synonyms=[])
-    wrong = ServiceCatalog(id=2, canonical_name="1,25(OH)2D3", category="Анализы", synonyms=[])
+    he4 = ServiceCatalog(canonical_name="HE4", category="Анализы", synonyms=[])
+    wrong = ServiceCatalog(canonical_name="1,25(OH)2D3", category="Анализы", synonyms=[])
     s.add_all([he4, wrong])
-    s.add(Clinic(id=1, name="Invitro", city="Алматы"))
+    cl = Clinic(name="Invitro", city="Алматы")
+    s.add(cl)
+    s.flush()
     # спорная цена (conf ниже порога), привязана к ВЕРНОЙ услуге (self-match) → confirm
-    s.add(Price(id=10, clinic_id=1, service_id=1, raw_name="HE4 (Human epididymis protein 4)",
+    s.add(Price(id=10, clinic_id=cl.id, service_id=he4.id, raw_name="HE4 (Human epididymis protein 4)",
                 price=7250, currency="KZT", source_type="web_scrape", match_confidence=0.27))
     # мусорная позиция, привязана к чему попало → junk
-    s.add(Price(id=11, clinic_id=1, service_id=2, raw_name="Прoвeрьтe здoрoвьe рeбeнка",
+    s.add(Price(id=11, clinic_id=cl.id, service_id=wrong.id, raw_name="Прoвeрьтe здoрoвьe рeбeнка",
                 price=13215, currency="KZT", source_type="web_scrape", match_confidence=0.41))
-    s.commit(); s.close()
+    s.commit()
+    he4_id, wrong_id = he4.id, wrong.id
+    s.close()
 
     def _ov():
         db = TS()
@@ -38,6 +42,7 @@ def client():
             db.close()
     app.dependency_overrides[get_db] = _ov
     c = TestClient(app); c.Session = TS
+    c.he4_id = he4_id; c.wrong_id = wrong_id
     yield c
     app.dependency_overrides.clear()
 
@@ -77,5 +82,5 @@ def test_review_price_new_action_creates_service(client):
     db = client.Session()
     assert db.query(ServiceCatalog).count() == n0 + 1
     p = db.get(Price, 11)
-    assert p.match_confidence == 1.0 and p.service_id != 2  # переназначена на новую
+    assert p.match_confidence == 1.0 and p.service_id != client.wrong_id  # переназначена на новую
     db.close()

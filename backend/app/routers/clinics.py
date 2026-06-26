@@ -1,6 +1,8 @@
 """CRUD клиник и их источников данных."""
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -45,7 +47,7 @@ def create_clinic(payload: ClinicIn, db: Session = Depends(get_db)):
 
 
 @router.get("/{clinic_id}", response_model=ClinicOut)
-def get_clinic(clinic_id: int, db: Session = Depends(get_db)):
+def get_clinic(clinic_id: uuid.UUID, db: Session = Depends(get_db)):
     clinic = db.get(Clinic, clinic_id)
     if not clinic:
         raise HTTPException(404, "Клиника не найдена")
@@ -53,12 +55,12 @@ def get_clinic(clinic_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{clinic_id}/prices", response_model=list[PriceOut])
-def clinic_prices(clinic_id: int, db: Session = Depends(get_db)):
+def clinic_prices(clinic_id: uuid.UUID, db: Session = Depends(get_db)):
     return db.query(Price).filter(Price.clinic_id == clinic_id).all()
 
 
 @router.get("/{clinic_id}/profile")
-def clinic_profile(clinic_id: int, db: Session = Depends(get_db)):
+def clinic_profile(clinic_id: uuid.UUID, db: Session = Depends(get_db)):
     """§3.3 карточка клиники: контакты, сайт, режим работы + ВСЕ услуги с ценами
     (нормализованное имя, срок, источник, дата обновления)."""
     from ..models import ServiceCatalog

@@ -46,12 +46,14 @@ def client():
     s = TS()
     svc = ServiceCatalog(canonical_name="ОАК", category="Анализы", synonyms=[])
     s.add(svc)
-    s.add(Clinic(id=1, name="Клиника А", city="Алматы"))
-    s.add(Clinic(id=2, name="Клиника Б", city="Астана"))
+    a = Clinic(name="Клиника А", city="Алматы")
+    b = Clinic(name="Клиника Б", city="Астана")
+    s.add(a)
+    s.add(b)
     s.flush()
     # у обеих клиник есть цена → оба города «с данными»
-    s.add(Price(clinic_id=1, service_id=svc.id, raw_name="ОАК", price=1500, source_type="web_scrape"))
-    s.add(Price(clinic_id=2, service_id=svc.id, raw_name="ОАК", price=2000, source_type="web_scrape"))
+    s.add(Price(clinic_id=a.id, service_id=svc.id, raw_name="ОАК", price=1500, source_type="web_scrape"))
+    s.add(Price(clinic_id=b.id, service_id=svc.id, raw_name="ОАК", price=2000, source_type="web_scrape"))
     s.commit()
     s.close()
 

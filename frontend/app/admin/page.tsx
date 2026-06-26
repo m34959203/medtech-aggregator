@@ -145,10 +145,10 @@ function PortalIssueCard() {
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <input
-          type="number"
+          type="text"
           value={clinicId}
           onChange={(e) => setClinicId(e.target.value)}
-          placeholder="ID клиники"
+          placeholder="ID клиники (uuid)"
           className="field max-w-[10rem] py-2 text-sm"
         />
         <button
@@ -158,7 +158,7 @@ function PortalIssueCard() {
             setErr(null);
             setLink(null);
             try {
-              const res = await issuePortalAccess(Number(clinicId));
+              const res = await issuePortalAccess(clinicId);
               setLink(res.portal_path);
             } catch {
               setErr("Клиника не найдена.");
@@ -220,7 +220,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await uploadBatch(files, clinicId ? Number(clinicId) : undefined);
+      const res = await uploadBatch(files, clinicId || undefined);
       setResult(res);
       onDone();
     } catch (e) {
@@ -255,10 +255,10 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
         />
         <div className="flex flex-wrap items-center gap-3">
           <input
-            type="number"
+            type="text"
             value={clinicId}
             onChange={(e) => setClinicId(e.target.value)}
-            placeholder="clinic_id по умолчанию (опц.)"
+            placeholder="clinic_id (uuid) по умолчанию (опц.)"
             className="field max-w-[16rem] py-2 text-sm"
           />
           <button

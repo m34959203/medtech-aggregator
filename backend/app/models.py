@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, date
 
 from sqlalchemy import (
@@ -10,17 +11,21 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Uuid,
     JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
 
+# §2.2 ТЗ: clinic_id и service_id — uuid. Тип Uuid портативен (PG native uuid /
+# SQLite CHAR(32)), что важно для тестов на SQLite и прода на Postgres.
+
 
 class Clinic(Base):
     __tablename__ = "clinics"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     city: Mapped[str] = mapped_column(Text, default="")
     district: Mapped[str] = mapped_column(Text, default="")
@@ -44,7 +49,7 @@ class Clinic(Base):
 class ServiceCatalog(Base):
     __tablename__ = "service_catalog"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(Text, default="")
     synonyms: Mapped[list] = mapped_column(JSON, default=list)
@@ -62,7 +67,7 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"))
+    clinic_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("clinics.id"))
     type: Mapped[str] = mapped_column(String(20))  # upload / web_scrape / api
     url_or_endpoint: Mapped[str] = mapped_column(Text, default="")
     schedule: Mapped[str] = mapped_column(Text, default="")  # cron-строка
@@ -103,7 +108,7 @@ class PriceReport(Base):
     __tablename__ = "price_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True)
+    clinic_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("clinics.id"), nullable=True)
     clinic_name: Mapped[str] = mapped_column(Text, default="")
     service: Mapped[str] = mapped_column(Text, default="")
     price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -122,7 +127,7 @@ class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    clinic_id: Mapped[int | None] = mapped_column(ForeignKey("clinics.id"), nullable=True)
+    clinic_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("clinics.id"), nullable=True)
     clinic_name: Mapped[str] = mapped_column(Text, default="")
     service: Mapped[str] = mapped_column(Text, default="")
     price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -138,8 +143,8 @@ class Price(Base):
     __tablename__ = "prices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"))
-    service_id: Mapped[int | None] = mapped_column(ForeignKey("service_catalog.id"), nullable=True)
+    clinic_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("clinics.id"))
+    service_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("service_catalog.id"), nullable=True)
     run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), nullable=True)
     source_type: Mapped[str] = mapped_column(String(20), default="upload")  # upload/web_scrape/api
     raw_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -162,6 +167,9 @@ class Price(Base):
     price_nonresident: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     service_code_source: Mapped[str] = mapped_column(String(48), default="")  # код как в документе
     tarificator_code: Mapped[str] = mapped_column(String(32), default="")      # нормализованный код тарификатора
+    # §2.2 MedPrice: URL источника записи (откуда снята цена) — web_scrape: страница
+    # прайса; api: ref коннектора; upload: имя файла. Прозрачность происхождения.
+    source_url: Mapped[str] = mapped_column(Text, default="")
 
     clinic: Mapped["Clinic"] = relationship(back_populates="prices")
     service: Mapped["ServiceCatalog"] = relationship(back_populates="prices")
@@ -178,7 +186,7 @@ class PriceHistory(Base):
     __tablename__ = "price_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    clinic_id: Mapped[int] = mapped_column(ForeignKey("clinics.id"), index=True)
-    service_id: Mapped[int] = mapped_column(ForeignKey("service_catalog.id"), index=True)
+    clinic_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("clinics.id"), index=True)
+    service_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("service_catalog.id"), index=True)
     price: Mapped[float] = mapped_column(Numeric(12, 2))
     recorded_at: Mapped[date] = mapped_column(Date, default=date.today, index=True)

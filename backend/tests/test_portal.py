@@ -23,11 +23,13 @@ def client():
     s = Session()
     svc = ServiceCatalog(canonical_name="Общий анализ крови", category="Анализы", synonyms=["ОАК"])
     s.add(svc)
-    s.add(Clinic(id=1, name="Клиника А", city="Алматы", address="ул. Абая, 1", phone="+7"))
+    cl = Clinic(name="Клиника А", city="Алматы", address="ул. Абая, 1", phone="+7")
+    s.add(cl)
     s.flush()
-    s.add(Price(clinic_id=1, service_id=svc.id, source_type="web_scrape", raw_name="ОАК",
+    s.add(Price(clinic_id=cl.id, service_id=svc.id, source_type="web_scrape", raw_name="ОАК",
                 price=2000, currency="KZT", match_confidence=0.9))
     s.commit()
+    cid = cl.id
     s.close()
 
     def _override():
@@ -38,12 +40,13 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = _override
-    yield TestClient(app)
+    c = TestClient(app); c.cid = cid
+    yield c
     app.dependency_overrides.clear()
 
 
 def test_issue_and_view(client):
-    issued = client.post("/api/portal/issue/1").json()
+    issued = client.post(f"/api/portal/issue/{client.cid}").json()
     token = issued["token"]
     assert token and issued["portal_path"] == f"/clinic/{token}"
     view = client.get(f"/api/portal/{token}").json()
@@ -56,7 +59,7 @@ def test_bad_token_404(client):
 
 
 def test_edit_price_marks_confirmed_upload(client):
-    token = client.post("/api/portal/issue/1").json()["token"]
+    token = client.post(f"/api/portal/issue/{client.cid}").json()["token"]
     pid = client.get(f"/api/portal/{token}").json()["prices"][0]["price_id"]
     r = client.patch(f"/api/portal/{token}/price/{pid}", json={"price": 2300})
     assert r.status_code == 200
@@ -65,13 +68,13 @@ def test_edit_price_marks_confirmed_upload(client):
 
 
 def test_confirm_all(client):
-    token = client.post("/api/portal/issue/1").json()["token"]
+    token = client.post(f"/api/portal/issue/{client.cid}").json()["token"]
     assert client.post(f"/api/portal/{token}/confirm-all").json()["confirmed"] == 1
     assert client.get(f"/api/portal/{token}").json()["confirmed_count"] == 1
 
 
 def test_portal_upload_own_pricelist(client):
-    token = client.post("/api/portal/issue/1").json()["token"]
+    token = client.post(f"/api/portal/issue/{client.cid}").json()["token"]
     csv = "Услуга;Цена\nОбщий анализ крови;1800\n".encode("utf-8")
     r = client.post(f"/api/portal/{token}/upload",
                     files={"file": ("price.csv", csv, "text/csv")})
@@ -84,5 +87,5 @@ def test_portal_upload_own_pricelist(client):
 
 def test_edit_foreign_price_rejected(client):
     """Правка чужой цены (нет такой у клиники) → 404."""
-    token = client.post("/api/portal/issue/1").json()["token"]
+    token = client.post(f"/api/portal/issue/{client.cid}").json()["token"]
     assert client.patch(f"/api/portal/{token}/price/9999", json={"price": 100}).status_code == 404

@@ -99,7 +99,7 @@ export interface CompareOpts {
 }
 
 export function compare(
-  serviceId: number,
+  serviceId: string, // uuid услуги (§2.2)
   opts: CompareOpts = {},
   signal?: AbortSignal,
 ): Promise<ServiceComparison> {
@@ -117,7 +117,7 @@ export function compare(
 }
 
 // Профиль клиники со всеми услугами.
-export function getClinicProfile(id: number, signal?: AbortSignal): Promise<ClinicProfile> {
+export function getClinicProfile(id: string, signal?: AbortSignal): Promise<ClinicProfile> {
   return apiFetch<ClinicProfile>(`/api/clinics/${id}/profile`, { signal });
 }
 
@@ -135,7 +135,7 @@ export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
 
 export function getServices(
   signal?: AbortSignal,
-): Promise<{ id: number; canonical_name: string; category: string }[]> {
+): Promise<{ id: string; canonical_name: string; category: string }[]> {
   return apiFetch("/api/services?limit=200", { signal });
 }
 
@@ -170,10 +170,10 @@ export function getIngestionRuns(limit = 50, signal?: AbortSignal): Promise<Inge
   return apiFetch<IngestionRun[]>(`/api/ingest/runs?limit=${limit}`, { signal });
 }
 
-export function uploadBatch(files: File[], clinicId?: number): Promise<BatchResult> {
+export function uploadBatch(files: File[], clinicId?: string): Promise<BatchResult> {
   const form = new FormData();
   for (const f of files) form.append("files", f);
-  if (clinicId != null) form.append("clinic_id", String(clinicId));
+  if (clinicId) form.append("clinic_id", clinicId);
   return apiFetch<BatchResult>("/api/ingest/upload-batch", { method: "POST", body: form });
 }
 
@@ -190,9 +190,9 @@ export function getReviewQueue(signal?: AbortSignal): Promise<ReviewQueue> {
 }
 
 export function reviewPrice(
-  priceId: number,
+  priceId: number, // price_id остаётся числом
   action: "confirm" | "reassign" | "reject",
-  targetServiceId?: number,
+  targetServiceId?: string, // uuid услуги (§2.2)
 ): Promise<unknown> {
   return apiFetch(`/api/review/price/${priceId}`, {
     method: "POST",
@@ -209,7 +209,7 @@ export interface AiResolveResult {
     price_id: number;
     raw_name: string;
     action: string;
-    service_id?: number | null;
+    service_id?: string | null; // uuid услуги (§2.2)
     target_name?: string | null;
     reason: string;
     confidence: number;
@@ -237,7 +237,7 @@ export function reviewReport(reportId: number, status: "reviewed" | "fixed"): Pr
 }
 
 export function createLead(lead: {
-  clinic_id?: number;
+  clinic_id?: string; // uuid клиники (§2.2)
   clinic_name?: string;
   service?: string;
   price?: number;
@@ -293,8 +293,8 @@ export function recommendBasketFile(file: File, city?: string): Promise<BasketRe
 // --- Спринт-3: портал клиники ---
 
 export function issuePortalAccess(
-  clinicId: number,
-): Promise<{ clinic_id: number; clinic_name: string; token: string; portal_path: string }> {
+  clinicId: string, // uuid клиники (§2.2)
+): Promise<{ clinic_id: string; clinic_name: string; token: string; portal_path: string }> {
   return apiFetch(`/api/portal/issue/${clinicId}`, { method: "POST" });
 }
 
@@ -322,7 +322,7 @@ export function uploadPortalPricelist(token: string, file: File): Promise<unknow
 
 // --- Петля обратной связи «цена неверная» ---
 export function reportPrice(report: {
-  clinic_id?: number;
+  clinic_id?: string; // uuid клиники (§2.2)
   clinic_name?: string;
   service?: string;
   price?: number;

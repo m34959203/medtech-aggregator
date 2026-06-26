@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
@@ -66,7 +68,7 @@ def review_queue(limit: int = 200, db: Session = Depends(get_db)):
 
 class PriceReviewAction(BaseModel):
     action: str  # confirm | reassign | reject | new
-    target_service_id: int | None = None
+    target_service_id: uuid.UUID | None = None
 
 
 def _new_service_from_raw(db: Session, raw_name: str) -> ServiceCatalog:
@@ -83,7 +85,7 @@ def _new_service_from_raw(db: Session, raw_name: str) -> ServiceCatalog:
     return svc
 
 
-def _apply_review(db: Session, price: Price, action: str, target_service_id: int | None) -> bool:
+def _apply_review(db: Session, price: Price, action: str, target_service_id: uuid.UUID | None) -> bool:
     """Применить одно действие к цене. True — применено, False — нечего/невалидно."""
     if action == "confirm":
         price.match_confidence = 1.0
@@ -131,23 +133,39 @@ def _ai_candidates(db: Session, raw: str, current_id: int, k: int = 8) -> list[S
 
 
 def _ai_decide(raw: str, current: ServiceCatalog, candidates: list[ServiceCatalog]) -> dict | None:
-    """LLM выбирает действие, ВЫБИРАЯ из кандидатов справочника (не выдумывает)."""
-    lines = "\n".join(f"{c.id}) {c.canonical_name} [{c.category}]" for c in candidates)
+    """LLM выбирает действие, ВЫБИРАЯ из кандидатов справочника (не выдумывает).
+
+    Кандидаты нумеруются ПОРЯДКОВО (1..N) — LLM не умеет надёжно повторять uuid;
+    выбранный номер маппим обратно в uuid услуги. Возвращает {action, service_id(uuid|None),
+    reason, confidence}."""
+    lines = "\n".join(f"{i}) {c.canonical_name} [{c.category}]" for i, c in enumerate(candidates, 1))
     prompt = (
         "Ты — медицинский нормализатор прайсов клиник Казахстана. Справочник услуг — "
         "ИСТОЧНИК ИСТИНЫ; не придумывай услуги вне списка кандидатов.\n"
         f'Позиция из прайса: "{raw}"\n'
-        f'Текущая привязка: id={current.id} "{current.canonical_name}"\n'
+        f'Текущая привязка (№1): "{current.canonical_name}"\n'
         f"Кандидаты справочника:\n{lines}\n\n"
         "Действия:\n"
-        "- confirm: текущая привязка — та же услуга (просто низкая fuzzy-оценка).\n"
-        "- reassign: правильная услуга есть среди кандидатов под ДРУГИМ id (укажи service_id).\n"
-        "- new: это реальная мед.услуга/анализ, но подходящей среди кандидатов нет — оставить отдельной услугой.\n"
+        "- confirm: текущая привязка (№1) — та же услуга (просто низкая fuzzy-оценка).\n"
+        "- reassign: правильная услуга есть среди кандидатов под ДРУГИМ номером (укажи choice).\n"
+        "- new: это реальная мед.услуга/анализ, но подходящей среди кандидатов нет.\n"
         "- junk: это НЕ медицинская услуга (рекламный заголовок/пакет/мусор) — удалить.\n"
         'Ответ СТРОГО JSON: {"action":"confirm|reassign|new|junk",'
-        '"service_id":<id из кандидатов или null>,"reason":"кратко","confidence":<число 0..1>}'
+        '"choice":<номер кандидата или null>,"reason":"кратко","confidence":<число 0..1>}'
     )
-    return llm.json_completion(prompt)
+    d = llm.json_completion(prompt)
+    if not d:
+        return None
+    sid = None
+    choice = d.get("choice")
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(candidates):
+            sid = candidates[idx].id
+    except (TypeError, ValueError):
+        sid = None
+    return {"action": d.get("action"), "service_id": sid,
+            "reason": d.get("reason", ""), "confidence": d.get("confidence")}
 
 
 class AiResolveBody(BaseModel):

@@ -40,6 +40,7 @@ _ADDITIVE_COLUMNS = {
         ("duration_days", "INTEGER"),
         ("price_original", "NUMERIC(12,2)"),
         ("currency_original", "VARCHAR(8)"),
+        ("source_url", "TEXT"),
     ],
 }
 

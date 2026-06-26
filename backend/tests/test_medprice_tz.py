@@ -46,21 +46,25 @@ def client():
                          synonyms=["ОАК", "анализ крови"])
     s.add(svc)
     # 2 клиники с рейтингом/онлайн-записью/режимом работы/сайтом
-    s.add(Clinic(id=1, name="Дешёвая", city="Алматы", rating=4.8, online_booking=True,
-                 working_hours="09-18", website="https://a.kz", lat=43.2, lng=76.9))
-    s.add(Clinic(id=2, name="Дорогая", city="Астана", rating=3.5, online_booking=False,
-                 working_hours="08-20", website="https://b.kz", lat=51.1, lng=71.4))
+    cheap = Clinic(name="Дешёвая", city="Алматы", rating=4.8, online_booking=True,
+                   working_hours="09-18", website="https://a.kz", lat=43.2, lng=76.9)
+    pricey = Clinic(name="Дорогая", city="Астана", rating=3.5, online_booking=False,
+                    working_hours="08-20", website="https://b.kz", lat=51.1, lng=71.4)
+    s.add(cheap)
+    s.add(pricey)
     s.flush()
     now = datetime.utcnow()
     # свежая дешёвая цена
-    s.add(Price(clinic_id=1, service_id=svc.id, raw_name="ОАК", price=1500, currency="KZT",
+    s.add(Price(clinic_id=cheap.id, service_id=svc.id, raw_name="ОАК", price=1500, currency="KZT",
                 source_type="web_scrape", valid_from=date.today(), parsed_at=now,
                 is_active=True, duration_days=1))
     # свежая дорогая цена
-    s.add(Price(clinic_id=2, service_id=svc.id, raw_name="ОАК", price=3000, currency="KZT",
+    s.add(Price(clinic_id=pricey.id, service_id=svc.id, raw_name="ОАК", price=3000, currency="KZT",
                 source_type="web_scrape", valid_from=date.today(), parsed_at=now, is_active=True))
     s.commit()
     sid = svc.id
+    cheap_id = cheap.id
+    pricey_id = pricey.id
     s.close()
 
     def _ov():
@@ -71,6 +75,7 @@ def client():
             db.close()
     app.dependency_overrides[get_db] = _ov
     c = TestClient(app); c.sid = sid; c.Session = Session
+    c.cheap_id = cheap_id; c.pricey_id = pricey_id
     yield c
     app.dependency_overrides.clear()
 
@@ -118,7 +123,7 @@ def test_categories_are_enum(client):
 
 
 def test_clinic_profile_lists_all_services(client):
-    p = client.get("/api/clinics/1/profile").json()
+    p = client.get(f"/api/clinics/{client.cheap_id}/profile").json()
     assert p["name"] == "Дешёвая" and p["working_hours"] == "09-18"
     assert p["rating"] == 4.8 and p["online_booking"] is True
     assert p["services_count"] == 1 and p["services"][0]["price"] == 1500
@@ -139,7 +144,7 @@ def test_null_is_active_treated_as_fresh(client):
 def test_explicit_false_is_active_excluded(client):
     # А вот ЯВНЫЙ False (scheduler пометил протухшей) — отсекаем.
     db = client.Session()
-    db.query(Price).filter(Price.clinic_id == 2).first().is_active = False
+    db.query(Price).filter(Price.clinic_id == client.pricey_id).first().is_active = False
     db.commit(); db.close()
     r = client.get(f"/api/compare/{client.sid}").json()
     assert r["offers_count"] == 1 and r["offers"][0]["clinic_name"] == "Дешёвая"
@@ -148,7 +153,7 @@ def test_explicit_false_is_active_excluded(client):
 def test_stale_price_excluded_from_results(client):
     # делаем дорогую цену протухшей (>30 дней) — её не должно быть в выдаче §4
     db = client.Session()
-    old = db.query(Price).filter(Price.clinic_id == 2).first()
+    old = db.query(Price).filter(Price.clinic_id == client.pricey_id).first()
     old.parsed_at = datetime.utcnow() - timedelta(days=40)
     old.valid_from = date.today() - timedelta(days=40)
     db.commit(); db.close()

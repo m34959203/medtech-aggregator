@@ -40,10 +40,14 @@ def copy(src_url: str, dst_url: str) -> dict[str, int]:
             print(f"  {model.__tablename__}: {len(rows)}")
 
     # Postgres: подвинуть sequence id, иначе следующий INSERT упрётся в дубль ключа.
+    # Только для таблиц с serial-PK; у clinics/service_catalog PK — uuid (sequence нет).
     if dst_url.startswith("postgres"):
+        uuid_pk = {"clinics", "service_catalog"}
         with dst.begin() as conn:
             for model in ORDER:
                 t = model.__tablename__
+                if t in uuid_pk:
+                    continue
                 conn.execute(text(
                     f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
                     f"COALESCE((SELECT MAX(id) FROM {t}), 1))"

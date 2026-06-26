@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -51,7 +53,7 @@ def list_partners(city: str | None = None, db: Session = Depends(get_db)):
 
 
 @router.get("/partners/{partner_id}/services")
-def partner_services(partner_id: int, db: Session = Depends(get_db)):
+def partner_services(partner_id: uuid.UUID, db: Session = Depends(get_db)):
     """Все услуги партнёра с ценами резидент/нерезидент."""
     partner = db.get(Clinic, partner_id)
     if not partner:
@@ -81,7 +83,7 @@ def partner_services(partner_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/services/{service_id}/partners")
-def service_partners(service_id: int, db: Session = Depends(get_db)):
+def service_partners(service_id: uuid.UUID, db: Session = Depends(get_db)):
     """Список партнёров, оказывающих услугу, с ценами (от дешёвой к дорогой)."""
     svc = db.get(ServiceCatalog, service_id)
     if not svc:
@@ -136,7 +138,7 @@ def unmatched_queue(limit: int = 200, db: Session = Depends(get_db)):
 
 class MatchIn(BaseModel):
     price_id: int
-    service_id: int
+    service_id: uuid.UUID
 
 
 @router.post("/match", dependencies=[Depends(require_admin)])

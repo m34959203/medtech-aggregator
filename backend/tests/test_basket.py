@@ -22,15 +22,15 @@ def client():
     glu = ServiceCatalog(canonical_name="Глюкоза (в крови)", category="Анализы", synonyms=["глюкоза", "сахар"])
     ttg = ServiceCatalog(canonical_name="ТТГ (тиреотропный гормон)", category="Анализы", synonyms=["ТТГ"])
     s.add_all([oak, glu, ttg])
-    a = Clinic(id=1, name="Клиника А", city="Алматы", address="ул. Абая, 1", phone="+7 701")
-    b = Clinic(id=2, name="Клиника Б", city="Алматы", address="пр. Мира, 2", phone="+7 702")
+    a = Clinic(name="Клиника А", city="Алматы", address="ул. Абая, 1", phone="+7 701")
+    b = Clinic(name="Клиника Б", city="Алматы", address="пр. Мира, 2", phone="+7 702")
     s.add_all([a, b])
     s.flush()
     P = lambda c, sv, pr: Price(clinic_id=c, service_id=sv, source_type="web_scrape",
                                 raw_name="x", price=pr, currency="KZT", match_confidence=1.0)
     s.add_all([
-        P(1, oak.id, 2000), P(1, glu.id, 1000), P(1, ttg.id, 3000),  # А: всё
-        P(2, oak.id, 1800), P(2, glu.id, 1200),                      # Б: без ТТГ
+        P(a.id, oak.id, 2000), P(a.id, glu.id, 1000), P(a.id, ttg.id, 3000),  # А: всё
+        P(b.id, oak.id, 1800), P(b.id, glu.id, 1200),                         # Б: без ТТГ
     ])
     s.commit()
     s.close()
