@@ -43,6 +43,10 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      # WhatsApp-туннель (внутр. docker-сеть medtech_net). Секрет — только на бэкенде.
+      WA_GATEWAY_URL: http://medtech-wa:3200
+      WA_API_SECRET: ${WA_API_SECRET:-}
+      WA_INBOUND_WEBHOOK_SECRET: ${WA_INBOUND_WEBHOOK_SECRET:-}
     volumes:
       - medtech_data:/data          # загрузки/легаси-SQLite (на случай миграции данных)
     depends_on:
@@ -50,6 +54,26 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8089:8000"   # локальная проверка
+    networks:
+      - medtech
+
+  medtech-wa:
+    build: ./wa-gateway
+    container_name: medtech-wa
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://medtech:${POSTGRES_PASSWORD:-medtech}@medtech-db:5432/medtech
+      WA_API_SECRET: ${WA_API_SECRET:-}
+      WA_INBOUND_WEBHOOK_URL: http://medtech-backend:8000/api/wa/inbound
+      WA_INBOUND_WEBHOOK_SECRET: ${WA_INBOUND_WEBHOOK_SECRET:-}
+      WA_DAILY_LIMIT: ${WA_DAILY_LIMIT:-100}
+      WA_REQUIRE_CLIENT_INITIATED: ${WA_REQUIRE_CLIENT_INITIATED:-true}
+      LOG_LEVEL: ${WA_LOG_LEVEL:-info}
+    depends_on:
+      medtech-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3200:3200"   # локальная проверка/привязка QR
     networks:
       - medtech
 

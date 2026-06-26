@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     alem_base_url: str = "https://llm.alem.ai/v1"
     alem_model: str = "alemllm"
 
+    # WhatsApp-туннель (Baileys-микросервис wa-gateway). Backend ходит к нему по
+    # внутренней docker-сети с секретом; фронт/админ — только через наш прокси.
+    # Пусто → WA-функции отключены (отдаём 503, не падаем).
+    wa_gateway_url: str = ""              # напр. http://medtech-wa:3200
+    wa_api_secret: str = ""               # = WA_API_SECRET туннеля (X-API-Secret)
+    wa_inbound_webhook_secret: str = ""   # проверка X-Webhook-Secret на входящих
+
     @property
     def chat_provider(self) -> str:
         """Фактический провайдер чата с учётом 'auto' и наличия ключей."""
