@@ -78,11 +78,26 @@ export default function ClinicMap({
         const coords: number[][] = [];
         for (const p of points) {
           const isCheapest = p.clinic_id === cheapestClinicId;
+          const addr = p.address || p.district || "";
+          // Маршрут до точки для навигатора (от текущего местоположения).
+          const routeUrl = `https://yandex.ru/maps/?rtext=~${p.lat},${p.lng}&rtt=auto`;
+          // Текст для WhatsApp: название, адрес и кликабельный маршрут.
+          const waText = encodeURIComponent(
+            [p.clinic_name, addr, addr ? "" : null, `Маршрут: ${routeUrl}`]
+              .filter((s) => s != null && s !== "")
+              .join("\n"),
+          );
+          const waUrl = `https://wa.me/?text=${waText}`;
           const body = [
             `<b style="color:#0f766e">${formatPrice(p.price, p.currency)}</b>`,
             isCheapest ? " · 🏆 Лучшая цена" : "",
-            `<br><span style="color:#64748b">${p.address || p.district || ""}</span>`,
+            `<br><span style="color:#64748b">${addr}</span>`,
             p.phone ? `<br><a href="tel:${p.phone.replace(/[^\d+]/g, "")}">${p.phone}</a>` : "",
+            `<br><a href="${waUrl}" target="_blank" rel="noopener noreferrer"` +
+              ` style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;` +
+              `padding:7px 12px;background:#25D366;color:#fff;border-radius:8px;` +
+              `text-decoration:none;font-weight:600;font-size:13px;line-height:1;">` +
+              `📍 Отправить адрес в WhatsApp</a>`,
           ].join("");
           const placemark = new ymaps.Placemark(
             [p.lat, p.lng],
