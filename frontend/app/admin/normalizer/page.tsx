@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { previewNormalization, ApiError } from "@/lib/api";
+import { useMemo, useRef, useState } from "react";
+import { previewNormalization, previewNormalizationFile, ApiError } from "@/lib/api";
 import type { NormalizationLine, NormItem, NormMethod } from "@/lib/types";
 
 // Реальное направление: смесь шума (дата/ФИО/заголовок) и панелей (липидограмма,
@@ -85,21 +85,55 @@ export default function NormalizerPage() {
   const [strict, setStrict] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // OCR с фото: распознанный текст, имя файла, состояние drag и раскрытие блока.
+  const [ocrText, setOcrText] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [ocrOpen, setOcrOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Единая обработка ошибок API для обоих входов (текст и фото).
+  function toMessage(err: unknown): string {
+    if (err instanceof ApiError) {
+      if (err.status === 422)
+        return "Не удалось распознать — сфотографируйте чётче или введите вручную.";
+      return `Ошибка сервера: ${err.message}`;
+    }
+    return "Не удалось связаться с движком нормализации.";
+  }
 
   async function run() {
     const names = text.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 30);
     if (names.length === 0 || loading) return;
     setLoading(true);
     setError(null);
+    setOcrText(null);
+    setFileName(null);
     try {
       const res = await previewNormalization(names);
       setRows(res.results);
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Ошибка сервера: ${err.message}`
-          : "Не удалось связаться с движком нормализации.",
-      );
+      setError(toMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Загрузка фото/скана/PDF: OCR на бэкенде → тот же контракт результатов.
+  async function runFile(file: File | null | undefined) {
+    if (!file || loading) return;
+    setLoading(true);
+    setError(null);
+    setFileName(file.name);
+    setOcrText(null);
+    try {
+      const res = await previewNormalizationFile(file);
+      setRows(res.results);
+      setOcrText(res.ocr_text);
+      setOcrOpen(false);
+    } catch (err) {
+      setError(toMessage(err));
+      setRows(null);
     } finally {
       setLoading(false);
     }
@@ -176,6 +210,63 @@ export default function NormalizerPage() {
           <p className="mt-2 text-xs text-ink-400">
             Строгий режим скрывает шум и нераспознанное — остаются только уверенные совпадения.
           </p>
+
+          {/* Вторая точка входа: фото/скан/PDF направления → OCR на бэкенде. */}
+          <div className="my-4 flex items-center gap-3 text-xs text-ink-400">
+            <span className="h-px flex-1 bg-ink-100" />
+            или
+            <span className="h-px flex-1 bg-ink-100" />
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.pdf,.png,.jpg,.jpeg"
+            className="hidden"
+            onChange={(e) => {
+              runFile(e.target.files?.[0]);
+              e.target.value = ""; // позволяем выбрать тот же файл повторно
+            }}
+          />
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => !loading && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && !loading) {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              runFile(e.dataTransfer.files?.[0]);
+            }}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-6 text-center transition ${
+              dragOver
+                ? "border-brand-400 bg-brand-50"
+                : "border-ink-200 bg-ink-50 hover:border-brand-300 hover:bg-brand-50/40"
+            } ${loading ? "pointer-events-none opacity-60" : ""}`}
+          >
+            <span className="text-2xl" aria-hidden>📷</span>
+            <span className="text-sm font-medium text-ink-700">
+              Загрузить фото/скан направления
+            </span>
+            <span className="text-xs text-ink-400">
+              JPG, PNG или PDF — перетащите сюда или нажмите
+            </span>
+            {fileName && (
+              <span className="mt-1 max-w-full truncate text-xs font-medium text-brand-700">
+                {loading ? "Распознаю…" : "✓"} {fileName}
+              </span>
+            )}
+          </div>
+
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </div>
 
@@ -268,6 +359,23 @@ export default function NormalizerPage() {
                 );
               })}
             </div>
+          )}
+
+          {/* Распознанный с фото текст — для справки, по умолчанию свёрнут. */}
+          {ocrText !== null && (
+            <details
+              open={ocrOpen}
+              onToggle={(e) => setOcrOpen((e.target as HTMLDetailsElement).open)}
+              className="mt-3 rounded-2xl border border-ink-100 bg-white"
+            >
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-ink-600 transition hover:text-ink-900">
+                <span className="mr-1.5" aria-hidden>{ocrOpen ? "▾" : "▸"}</span>
+                Распознанный текст (OCR)
+              </summary>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t border-ink-100 px-4 py-3 font-mono text-xs leading-relaxed text-ink-600">
+                {ocrText.trim() || "(пусто)"}
+              </pre>
+            </details>
           )}
         </div>
       </div>
