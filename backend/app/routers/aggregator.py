@@ -10,6 +10,7 @@ from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..data import kz_cities
 from ..db import get_db
 from ..ingestion import category as category_enum
 from ..ingestion import ontology, variants
@@ -95,8 +96,34 @@ def categories(db: Session = Depends(get_db)):
 
 @router.get("/cities", response_model=list[str])
 def cities(db: Session = Depends(get_db)):
-    rows = db.query(distinct(Clinic.city)).order_by(Clinic.city).all()
-    return [r[0] for r in rows if r[0]]
+    """Все города РК из канонического справочника ∪ города с данными (§3.3/§7).
+
+    Платформа знает все 90 городов РК; города без прайсов = «зарегистрирован,
+    данных нет» (прозрачный охват рынка). Города с данными — первыми.
+    """
+    rows = db.query(distinct(Clinic.city)).all()
+    with_data = sorted(r[0] for r in rows if r[0])
+    seen = set(with_data)
+    rest = sorted(c for c in kz_cities.names() if c not in seen)
+    return with_data + rest
+
+
+@router.get("/cities/coverage")
+def cities_coverage(db: Session = Depends(get_db)):
+    """Охват рынка: каждый из 90 городов справочника + флаг наличия данных."""
+    rows = db.query(Clinic.city, func.count(Clinic.id)).group_by(Clinic.city).all()
+    counts: dict[str, int] = {c: n for c, n in rows if c}
+    out = []
+    for c in kz_cities.all_cities():
+        out.append({**c, "clinics": counts.get(c["name"], 0),
+                    "has_data": counts.get(c["name"], 0) > 0})
+    # города с данными, но вне справочника 90 (формально шире рынка) — не теряем
+    extra = sorted(set(counts) - {c["name"] for c in out})
+    for name in extra:
+        out.append({"name": name, "region": "", "status": 0, "status_label": "",
+                    "slug": kz_cities.slugify(name), "clinics": counts[name],
+                    "has_data": True})
+    return out
 
 
 @router.get("/services", response_model=list[ServiceOut])

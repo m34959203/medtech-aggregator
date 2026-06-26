@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import re
 
+from .data import kz_cities
 from .db import SessionLocal, init_db
 from .ingestion import file_parser, web_scraper
 from .ingestion.service import ingest_items
@@ -58,6 +59,9 @@ O103_PER_CITY = 4
 
 
 def _clinic(db, name: str, city: str, website: str = "", **extra) -> Clinic:
+    # Нормализуем город к каноническому названию справочника (almaty/uk/«Алматы»
+    # → одна запись), иначе фильтр по городам двоится по вариантам написания.
+    city = kz_cities.canonical_city(city) or city
     c = db.query(Clinic).filter(Clinic.name == name).first()
     if not c:
         c = Clinic(name=name, city=city, website=website, **extra)
@@ -123,8 +127,11 @@ def seed_archive_files(db, report: list[dict]) -> None:
     files = sorted(f for f in os.listdir(base)
                    if f.lower().startswith("клиника") or f.lower().startswith("klinika"))
     files = files[:ARCHIVE_FILES]
-    # города по кругу — реальные прайсы анонимных клиник РК, раскидываем по рынку
-    cities = ["Алматы", "Астана", "Шымкент", "Актобе", "Павлодар", "Караганда", "Тараз", "Костанай"]
+    # города по кругу — реальные прайсы анонимных клиник РК, раскидываем по рынку.
+    # Берём приоритетные города ТЗ из канонического справочника (а не хардкод-список).
+    cities = [c for c in ["Алматы", "Астана", "Шымкент", "Актобе", "Павлодар",
+                          "Караганда", "Тараз", "Костанай"]
+              if kz_cities.canonical_city(c)]
     for i, fn in enumerate(files):
         path = os.path.join(base, fn)
         try:
