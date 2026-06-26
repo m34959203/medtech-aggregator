@@ -226,6 +226,27 @@ def fetch_prices(clinic: dict, max_services: int = _DEFAULT_MAX_SERVICES) -> lis
     return items
 
 
+def refresh(clinic_id: int, city_id: int,
+            max_services: int = _DEFAULT_MAX_SERVICES) -> list[RawItem]:
+    """Перезабрать прайс клиники по её id+city_id — для планировщика (cron).
+
+    Источник в БД хранит машинный ref `doq://{city_id}/{clinic_id}`, по которому
+    `scheduler` детерминированно обновляет именно эту клинику без повторного обхода
+    каталога городов."""
+    return fetch_prices({"id": int(clinic_id), "city_id": int(city_id)}, max_services)
+
+
+def parse_ref(url: str) -> tuple[int, int] | None:
+    """`doq://{city_id}/{clinic_id}` → (city_id, clinic_id). None, если не наш ref."""
+    if not url.startswith("doq://"):
+        return None
+    try:
+        city_id, clinic_id = url[len("doq://"):].split("/", 1)
+        return int(city_id), int(clinic_id)
+    except Exception:
+        return None
+
+
 # --------------------------------------------------------------------------- #
 #  Высокоуровневый сборщик для сидинга
 # --------------------------------------------------------------------------- #

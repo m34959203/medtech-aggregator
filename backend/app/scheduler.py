@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 from .config import settings
 from .db import SessionLocal, init_db
-from .ingestion import api_connector, web_scraper
+from .ingestion import api_connector, doq_connector, web_scraper
 from .ingestion.service import ingest_items
 from .models import IngestionRun, Source
 
@@ -40,10 +40,16 @@ def run_all_sources() -> list[dict]:
             try:
                 raw = ""
                 if src.type == "web_scrape":
+                    # KDL/invitro/KazMedClinic/103.kz — диспетчер адаптеров по URL
                     raw, items = web_scraper.scrape_url_raw(src.url_or_endpoint)
                     st, ch = "web_scrape", "pull"
                 elif src.type == "api":
-                    items = api_connector.fetch_api(src.url_or_endpoint)
+                    ref = doq_connector.parse_ref(src.url_or_endpoint)
+                    if ref is not None:           # doq://{city_id}/{clinic_id}
+                        city_id, clinic_id = ref
+                        items = doq_connector.refresh(clinic_id, city_id)
+                    else:                          # прочие JSON-API
+                        items = api_connector.fetch_api(src.url_or_endpoint)
                     st, ch = "api", "pull"
                 else:
                     continue  # upload-источники не автособираются

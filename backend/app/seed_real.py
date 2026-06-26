@@ -37,14 +37,24 @@ ARCHIVE_CAP_PER_FILE = 120
 # Дополнительные живые адаптеры (подключатся, если ответят). raw_name+цена статикой.
 # Invitro — каталог анализов отдаётся СТАТИКОЙ на /analizes/ (~2126 позиций),
 # адаптер web_scraper._invitro уже разбирает .analyzes-item__total--price.
+# KazMedClinic — прайс /ceny статикой (~823 позиции через generic-парсер).
 EXTRA_WEB = [
     ("Invitro — Алматы", "Алматы", "https://www.invitro.kz/analizes/"),
+    ("KazMedClinic — Алматы", "Алматы", "https://kazmedclinic.kz/ceny"),
 ]
 
-# doq.kz — REST API api.doq.kz: клиники×услуги×цены по 12 городам РК.
-DOQ_CITIES = ["almaty", "astana", "shymkent", "aktobe"]
-DOQ_MAX_CLINICS_PER_CITY = 4   # демо-охват; в проде поднять (каждая услуга = 1 API-вызов)
-DOQ_MAX_SERVICES = 12
+# doq.kz — REST API api.doq.kz: клиники×услуги×цены по ВСЕМ 12 городам РК.
+# Пусто → берём все города из fetch_cities(). Каждая услуга = 1 API-вызов, поэтому
+# глубину держим умеренной (демо-охват «все города», в проде поднять лимиты).
+DOQ_CITIES: list[str] = []            # [] = все 12 городов doq
+DOQ_MAX_CLINICS_PER_CITY = 3
+DOQ_MAX_SERVICES = 10
+
+# 103.kz — клиники/лаборатории по городам РК (discover по городу + harvest).
+O103_CITIES = ["almaty", "astana", "shymkent", "aktobe", "karaganda",
+               "pavlodar", "taraz", "semey", "aktau", "kyzylorda",
+               "kokshetau", "ust-kamenogorsk"]
+O103_PER_CITY = 4
 
 
 def _clinic(db, name: str, city: str, website: str = "", **extra) -> Clinic:
@@ -165,7 +175,14 @@ def seed_doq(db, report: list[dict]) -> None:
     except Exception as e:
         report.append({"source": "doq.kz", "status": "absent", "error": str(e)[:80]})
         return
-    for city_slug in DOQ_CITIES:
+    cities = DOQ_CITIES
+    if not cities:  # все города doq
+        try:
+            cities = [c["slug"] for c in doq.fetch_cities() if c.get("slug")]
+        except Exception as e:
+            report.append({"source": "doq.kz", "status": "error", "error": str(e)[:80]})
+            return
+    for city_slug in cities:
         try:
             blocks = doq.fetch_all(max_clinics=DOQ_MAX_CLINICS_PER_CITY,
                                    city_slug=city_slug, max_services=DOQ_MAX_SERVICES)
@@ -186,7 +203,10 @@ def seed_doq(db, report: list[dict]) -> None:
                              address=cl.get("address") or "", phone=cl.get("phone") or "",
                              lat=cl.get("lat"), lng=cl.get("lng"),
                              rating=cl.get("rating"), online_booking=True)
-            src = _source(db, clinic.id, "api", cl.get("source_url") or f"doq:{cl.get('id')}")
+            # машинный ref для планировщика: doq://{city_id}/{clinic_id}
+            ref = (f"doq://{cl.get('city_id')}/{cl.get('id')}"
+                   if cl.get("city_id") and cl.get("id") else (cl.get("source_url") or ""))
+            src = _source(db, clinic.id, "api", ref)
             res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="api",
                                items=items, fmt="json", source_id=src.id)
             report.append({"source": f"doq:{name}", "status": "ok", "clinic": name,
@@ -194,14 +214,28 @@ def seed_doq(db, report: list[dict]) -> None:
 
 
 def seed_103(db, report: list[dict]) -> None:
-    """103.kz — прайсы сотен клиник РК (через харвестер, если он собран)."""
+    """103.kz — прайсы клиник РК по ВСЕМ городам (discover по городу + harvest)."""
     try:
         from .ingestion import o103_harvester as o103
     except Exception as e:
         report.append({"source": "103.kz", "status": "absent", "error": str(e)[:80]})
         return
+    # 1) собрать slug'и по каждому городу + проверенный набор
+    slugs: list[str] = []
+    seen: set[str] = set()
+    for city in O103_CITIES:
+        try:
+            for s in o103.discover_slugs(city, limit=O103_PER_CITY):
+                if s not in seen:
+                    seen.add(s); slugs.append(s)
+        except Exception as e:
+            report.append({"source": f"103:{city}", "status": "error", "error": str(e)[:60]})
+    for s in getattr(o103, "KNOWN_SLUGS", []):
+        if s not in seen:
+            seen.add(s); slugs.append(s)
+    # 2) выкачать прайс каждой клиники
     try:
-        blocks = o103.harvest_known()
+        blocks = o103.harvest(slugs)
     except Exception as e:
         report.append({"source": "103.kz", "status": "error", "error": str(e)[:80]})
         return
@@ -228,6 +262,9 @@ def main() -> dict:
     # достаточно code-first + fuzzy; смысловой проход доступен в рантайме на чтении.
     from .config import settings as _s
     _s.semantic_enabled = False
+    # «Все города» = много запросов; держим вежливый, но не черепаший темп (0.5с/хост).
+    # robots по-прежнему соблюдается шлюзом; для хостов со своим Crawl-delay берётся больший.
+    _s.scrape_crawl_delay = 0.5
     # LLM-арбитраж — для живых одиночных запросов; в bulk-сиде он делает сетевой
     # вызов на КАЖДУЮ неоднозначную позицию (сотни) → минуты. Отключаем: code-first
     # + fuzzy достаточно для наполнения, остальное уходит в unmatched-очередь.
