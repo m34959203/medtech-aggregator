@@ -11,7 +11,7 @@ from fastapi import Depends
 from .auth import require_admin
 from .routers import (
     aggregator, auth, basket, chat, clinics, export, feedback, ingestion, leads, partners, portal,
-    review, semantic,
+    review, semantic, wa,
 )
 
 app = FastAPI(
@@ -50,3 +50,4 @@ app.include_router(basket.router)
 app.include_router(auth.router)
 app.include_router(semantic.router)
 app.include_router(partners.router)
+app.include_router(wa.router)
