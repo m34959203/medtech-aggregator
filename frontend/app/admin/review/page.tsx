@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
+  aiResolveQueue,
   getReviewQueue,
   getServices,
   reviewPrice,
@@ -53,6 +54,10 @@ export default function ReviewPage() {
         </div>
       )}
 
+      {queue && queue.low_confidence.length > 0 && (
+        <AiResolvePanel total={queue.low_confidence.length} onDone={refresh} />
+      )}
+
       <section className="mb-8">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
           Спорные сопоставления{" "}
@@ -86,6 +91,74 @@ export default function ReviewPage() {
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+function AiResolvePanel({ total, onDone }: { total: number; onDone: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [applied, setApplied] = useState(0);
+  const [done, setDone] = useState(0);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function run() {
+    if (running) return;
+    setRunning(true);
+    setApplied(0);
+    setDone(0);
+    setMsg(null);
+    let totalApplied = 0;
+    let processedTotal = 0;
+    let prevRemaining = Infinity;
+    try {
+      // цикл по батчам, пока очередь убывает (защита от зацикливания при недоступном ИИ)
+      for (let i = 0; i < 60; i++) {
+        const r = await aiResolveQueue({ limit: 25, apply: true, min_confidence: 0.8 });
+        totalApplied += r.applied;
+        processedTotal += r.processed;
+        setApplied(totalApplied);
+        setDone(processedTotal);
+        if (r.processed === 0) break;
+        // нет прогресса (ИИ ничего не применил и очередь не уменьшилась) → стоп
+        if (r.applied === 0 && r.remaining >= prevRemaining) {
+          setMsg(
+            "ИИ не смог уверенно разобрать оставшиеся позиции (или туннель LLM недоступен). " +
+              "Разберите их вручную ниже.",
+          );
+          break;
+        }
+        prevRemaining = r.remaining;
+        if (r.remaining === 0) break;
+      }
+      onDone();
+    } catch (e) {
+      setMsg(e instanceof ApiError ? `Ошибка: ${e.message}` : "Бэкенд недоступен.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="card mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div className="flex items-center gap-2 font-medium text-ink-900">
+          <span>🤖 ИИ-разбор очереди</span>
+        </div>
+        <p className="mt-0.5 text-sm text-ink-500">
+          ИИ подберёт услугу из официального справочника, подтвердит верные и пометит
+          мусор. Применяются только уверенные решения (≥80%); спорные останутся вам.
+        </p>
+        {(running || done > 0) && (
+          <p className="mt-1 text-sm text-brand-700">
+            Обработано {done} из ~{total} · применено {applied}
+            {running ? " · идёт…" : ""}
+          </p>
+        )}
+        {msg && <p className="mt-1 text-sm text-amber-700">{msg}</p>}
+      </div>
+      <button onClick={run} disabled={running} className="btn-primary shrink-0 text-sm">
+        {running ? "Разбираю…" : "Запустить ИИ-разбор"}
+      </button>
     </div>
   );
 }

@@ -191,6 +191,33 @@ export function reviewPrice(
   });
 }
 
+export interface AiResolveResult {
+  processed: number;
+  applied: number;
+  remaining: number;
+  proposals: {
+    price_id: number;
+    raw_name: string;
+    action: string;
+    service_id?: number | null;
+    target_name?: string | null;
+    reason: string;
+    confidence: number;
+    applied?: boolean;
+  }[];
+}
+
+// ИИ-разбор очереди ревью (admin). apply=true применяет уверенные решения.
+export function aiResolveQueue(
+  body: { limit?: number; apply?: boolean; min_confidence?: number },
+): Promise<AiResolveResult> {
+  return apiFetch<AiResolveResult>("/api/review/ai-resolve", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export function reviewReport(reportId: number, status: "reviewed" | "fixed"): Promise<unknown> {
   return apiFetch(`/api/review/report/${reportId}`, {
     method: "POST",
