@@ -52,9 +52,15 @@ DOQ_MAX_CLINICS_PER_CITY = 3
 DOQ_MAX_SERVICES = 10
 
 # 103.kz — клиники/лаборатории по городам РК (discover по городу + harvest).
-O103_CITIES = ["almaty", "astana", "shymkent", "aktobe", "karaganda",
-               "pavlodar", "taraz", "semey", "aktau", "kyzylorda",
-               "kokshetau", "ust-kamenogorsk"]
+# Города берём из канонического справочника (ВСЕ 90 РК): проверенный набор —
+# первым (там реально есть прайсы), остальные пробуем discover'ом (нет поддомена/
+# листинга → пусто, безвредно). Так «подтягиваем данные по всем городам».
+_O103_PROVEN = ["almaty", "astana", "shymkent", "aktobe", "karaganda",
+                "pavlodar", "taraz", "semey", "aktau", "kyzylorda",
+                "kokshetau", "ust-kamenogorsk"]
+O103_CITIES = _O103_PROVEN + [
+    c["slug"] for c in kz_cities.all_cities() if c["slug"] not in set(_O103_PROVEN)
+]
 O103_PER_CITY = 4
 
 
@@ -262,6 +268,60 @@ def seed_103(db, report: list[dict]) -> None:
                        "city": clinic.city, "items": res.items_found, "matched": res.matched})
 
 
+# Филиалы сетей-лабораторий из общего sitemap 103.kz — рычаг МАЛЫХ городов.
+# Сколько филиалов максимум пробуем и сколько держим на город (кэп ради ШИРОТЫ
+# охвата: один город не должен забить выдачу). Город — из карточки филиала.
+O103_CHAIN_SCAN = 500
+O103_CHAIN_PER_CITY = 3
+
+
+def seed_103_chains(db, report: list[dict]) -> None:
+    """Малые города: филиалы сетей-лабораторий 103.kz (invitro/olimp/gemotest/…).
+
+    У сетей пронумерованные поддомены-филиалы по ВСЕЙ стране, включая малые города;
+    прайс сети реально действует в филиале, город берётся из его карточки. Сканировать
+    общий пул «с головы» бесполезно (он отсортирован по мегаполисам) — поэтому берём
+    именно филиалы сетей. Дёшево: на отсеянный филиал — 1 запрос (/pricing/), geo
+    (2-й запрос) — только для взятых. Кэп на город → широта, а не глубина по Алматы.
+    """
+    try:
+        from .ingestion import o103_harvester as o103
+    except Exception as e:
+        report.append({"source": "103.kz/chains", "status": "absent", "error": str(e)[:80]})
+        return
+    try:
+        branches = o103.discover_chain_branches(limit=O103_CHAIN_SCAN)
+    except Exception as e:
+        report.append({"source": "103.kz/chains", "status": "error", "error": str(e)[:80]})
+        return
+    per_city: dict[str, int] = {}
+    kept = 0
+    for slug in branches:
+        rec = o103.fetch_pricing(slug)            # 1 запрос: город + позиции
+        if rec is None:
+            continue
+        city = kz_cities.canonical_city(rec.get("city"))
+        if not city:
+            continue
+        if per_city.get(city, 0) >= O103_CHAIN_PER_CITY:
+            continue                              # этот город уже покрыт — широта важнее
+        o103.enrich_geo(rec)                      # 2-й запрос только для взятых
+        name = f"{rec['name']} (103.kz)"
+        clinic = _clinic(db, name, city, website=f"{rec['base']}/",
+                         address=rec.get("address") or "", phone=rec.get("phone") or "",
+                         lat=rec.get("lat"), lng=rec.get("lng"))
+        src = _source(db, clinic.id, "web_scrape", rec["source_url"])
+        res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",
+                           items=rec["items"], fmt="html", source_id=src.id)
+        per_city[city] = per_city.get(city, 0) + 1
+        kept += 1
+        report.append({"source": f"103chain:{slug}", "status": "ok", "clinic": name,
+                       "city": city, "items": res.items_found, "matched": res.matched})
+    report.append({"source": "103.kz/chains", "status": "summary",
+                   "clinic": f"{kept} филиалов", "city": f"{len(per_city)} городов",
+                   "items": kept})
+
+
 def main() -> dict:
     migrate()
     # Семантический реранкер — фишка живых одиночных запросов; в bulk-сиде он
@@ -284,7 +344,8 @@ def main() -> dict:
         seed_archive_files(db, report)
         seed_extra_web(db, report)   # invitro (статика)
         seed_doq(db, report)         # doq.kz REST API — города РК
-        seed_103(db, report)         # 103.kz харвестер (если собран)
+        seed_103(db, report)         # 103.kz — листинги по всем 90 городам
+        seed_103_chains(db, report)  # 103.kz — филиалы сетей: МАЛЫЕ города по всей РК
 
         ok = [r for r in report if r.get("status") == "ok"]
         cities = sorted({r["city"] for r in ok if r.get("city")})

@@ -136,6 +136,28 @@ def discover_slugs(city: str | None = None, limit: int = 50) -> list[str]:
     return slugs
 
 
+# Сети-лаборатории с пронумерованными поддоменами-филиалами (invitro-12, olimp-70,
+# gemotest-5…). Их филиалы есть и в МАЛЫХ городах, прайс сети единый/региональный,
+# город у каждого филиала свой (из карточки) — высокий выход охвата на город.
+CHAIN_SLUG_RE = re.compile(
+    r"^(invitro|olimp|olympe?|kdl|gemotest|helix|genom|sinevo|synevo|inco|dnk)[-0-9]",
+    re.IGNORECASE,
+)
+
+
+def discover_chain_branches(limit: int = 500) -> list[str]:
+    """Из общего sitemap отобрать филиалы сетей-лабораторий (см. CHAIN_SLUG_RE).
+
+    Это рычаг малых городов: сканировать пул «с головы» бесполезно (он отсортирован
+    по мегаполисам), а филиалы сетей раскиданы по всей стране. Город каждого филиала
+    берётся из его карточки при сборе.
+    """
+    pool = discover_slugs(None, limit=99999)
+    branches = [s for s in pool if CHAIN_SLUG_RE.match(s)]
+    log.info("103.kz: филиалов сетей в sitemap %d (берём %d)", len(branches), min(limit, len(branches)))
+    return branches[:limit]
+
+
 def _localbusiness_meta(html: str) -> dict:
     """Имя/город/адрес/телефон клиники из JSON-LD LocalBusiness страницы /pricing/.
     (geo там нет — его добираем из карточки главной через fetch_103kz_card.)"""
@@ -159,51 +181,82 @@ def _localbusiness_meta(html: str) -> dict:
     return meta
 
 
-def harvest(slugs: list[str]) -> list[dict]:
-    """Снять прайсы пачки клиник 103.kz.
+def fetch_pricing(slug: str) -> dict | None:
+    """Дешёвый шаг (1 запрос): GET /pricing/ → имя+город+позиции, БЕЗ geo.
 
-    На каждый slug: GET /pricing/ (позиции + имя/город из LocalBusiness) и GET /
-    (контакты+geo через web_scraper.fetch_103kz_card). Клиники без позиций
-    пропускаем (нет публичного прайса). → [{clinic{...}, items:[RawItem]}].
+    Возвращает «сырую» запись с собственным ГОРОДОМ клиники (из LocalBusiness) —
+    этого достаточно, чтобы решить, брать ли клинику (кэп по городу). Нет прайса
+    в публичном доступе → None. geo добирается отдельно (enrich_geo), только если
+    клинику берём — так не тратим 2-й запрос на отсеянные.
     """
+    base = f"https://{slug}.103.kz"
+    pricing = f"{base}/pricing/"
+    try:
+        html = polite_get(pricing, timeout=40.0).text
+    except RobotsDisallowed:
+        log.warning("103.kz[%s]: robots запрещает /pricing/", slug)
+        return None
+    except Exception as e:
+        log.warning("103.kz[%s]: /pricing/ недоступен (%s)", slug, e)
+        return None
+    items = ws._103kz(html)
+    if not items:  # нет прайса в публичном доступе — клинику не добавляем
+        log.info("103.kz[%s]: позиций не найдено — пропуск", slug)
+        return None
+    meta = _localbusiness_meta(html)
+    return {
+        "slug": slug, "base": base, "source_url": pricing,
+        "name": meta.get("name") or slug, "city": meta.get("city"),
+        "address": meta.get("address"), "phone": meta.get("phone") or "",
+        "lat": None, "lng": None, "items": items,
+    }
+
+
+def enrich_geo(rec: dict) -> dict:
+    """2-й запрос (GET /): контакты+geo из карточки главной. geo необязателен."""
+    try:
+        card = ws.fetch_103kz_card(f"{rec['base']}/") or {}
+    except Exception as e:
+        log.warning("103.kz[%s]: карточка недоступна (%s)", rec.get("slug"), e)
+        card = {}
+    rec["address"] = card.get("address") or rec.get("address")
+    rec["phone"] = card.get("phone") or rec.get("phone") or ""
+    rec["lat"] = card.get("lat")
+    rec["lng"] = card.get("lng")
+    return rec
+
+
+def _block(rec: dict) -> dict:
+    return {
+        "clinic": {
+            "name": rec["name"], "city": rec.get("city"),
+            "address": rec.get("address"), "phone": rec.get("phone") or "",
+            "lat": rec.get("lat"), "lng": rec.get("lng"),
+            "website": f"{rec['base']}/", "source_url": rec["source_url"],
+        },
+        "items": rec["items"],
+    }
+
+
+def harvest_one(slug: str, with_geo: bool = True) -> dict | None:
+    """Снять одну клинику 103.kz → {clinic{...}, items} либо None (нет прайса)."""
+    rec = fetch_pricing(slug)
+    if rec is None:
+        return None
+    if with_geo:
+        enrich_geo(rec)
+    log.info("103.kz[%s]: %s (%s) — %d позиций",
+             slug, rec["name"], rec.get("city"), len(rec["items"]))
+    return _block(rec)
+
+
+def harvest(slugs: list[str]) -> list[dict]:
+    """Снять прайсы пачки клиник 103.kz. → [{clinic{...}, items:[RawItem]}]."""
     out: list[dict] = []
     for slug in slugs:
-        base = f"https://{slug}.103.kz"
-        pricing = f"{base}/pricing/"
-        try:
-            html = polite_get(pricing, timeout=40.0).text
-        except RobotsDisallowed:
-            log.warning("103.kz[%s]: robots запрещает /pricing/", slug)
-            continue
-        except Exception as e:
-            log.warning("103.kz[%s]: /pricing/ недоступен (%s)", slug, e)
-            continue
-
-        items = ws._103kz(html)
-        if not items:  # нет прайса в публичном доступе — клинику не добавляем
-            log.info("103.kz[%s]: позиций не найдено — пропуск", slug)
-            continue
-
-        meta = _localbusiness_meta(html)
-        try:
-            card = ws.fetch_103kz_card(f"{base}/") or {}
-        except Exception as e:  # geo — необязательно, не валим клинику
-            log.warning("103.kz[%s]: карточка недоступна (%s)", slug, e)
-            card = {}
-
-        clinic = {
-            "name": meta.get("name") or slug,
-            "city": meta.get("city"),
-            "address": card.get("address") or meta.get("address"),
-            "phone": card.get("phone") or meta.get("phone") or "",
-            "lat": card.get("lat"),
-            "lng": card.get("lng"),
-            "website": f"{base}/",
-            "source_url": pricing,
-        }
-        out.append({"clinic": clinic, "items": items})
-        log.info("103.kz[%s]: %s (%s) — %d позиций",
-                 slug, clinic["name"], clinic["city"], len(items))
+        block = harvest_one(slug)
+        if block is not None:
+            out.append(block)
     return out
 
 
