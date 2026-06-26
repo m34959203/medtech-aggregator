@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.execute(
         "CREATE TABLE IF NOT EXISTS service_embeddings ("
-        " service_id integer PRIMARY KEY REFERENCES service_catalog(id) ON DELETE CASCADE,"
+        " service_id uuid PRIMARY KEY REFERENCES service_catalog(id) ON DELETE CASCADE,"
         " embedding vector(384)"
         ")"
     )

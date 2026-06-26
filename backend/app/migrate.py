@@ -60,6 +60,21 @@ def _ensure_additive_columns() -> None:
                 print(f"[migrate] +{table}.{name}")
 
 
+def _ensure_pgvector_embeddings() -> None:
+    """Идемпотентно гарантирует таблицу эмбеддингов (pgvector) — на Postgres.
+    Нужна, т.к. прод-схема разворачивается через create_all (не alembic), а эта
+    таблица не модель SQLAlchemy. service_id — uuid (§2.2)."""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS service_embeddings ("
+            " service_id uuid PRIMARY KEY REFERENCES service_catalog(id) ON DELETE CASCADE,"
+            " embedding vector(384))"
+        ))
+
+
 def run() -> None:
     insp = inspect(engine)
     tables = set(insp.get_table_names())
@@ -69,6 +84,7 @@ def run() -> None:
         # уже под Alembic, либо совсем свежая БД — миграции делают всё сами
         command.upgrade(cfg, "head")
         _ensure_additive_columns()
+        _ensure_pgvector_embeddings()
         print("[migrate] alembic upgrade head — готово.")
         return
 
@@ -80,6 +96,7 @@ def run() -> None:
             conn.execute(text("ALTER TABLE clinics ADD COLUMN access_token VARCHAR(64)"))
         print("[migrate] легаси: добавлена колонка clinics.access_token.")
     _ensure_additive_columns()
+    _ensure_pgvector_embeddings()
     command.stamp(cfg, "head")
     print("[migrate] легаси-БД адаптирована и помечена head.")
 
