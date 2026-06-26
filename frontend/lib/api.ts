@@ -8,7 +8,7 @@ import type {
   ClinicProfile,
   IngestionRun,
   IngestionStats,
-  NormalizationPreview,
+  NormalizationLine,
   SearchParams,
   ServiceComparison,
   SortOrder,
@@ -142,8 +142,8 @@ export function getServices(
 export function previewNormalization(
   names: string[],
   signal?: AbortSignal,
-): Promise<{ results: NormalizationPreview[] }> {
-  return apiFetch<{ results: NormalizationPreview[] }>("/api/ingest/preview", {
+): Promise<{ results: NormalizationLine[] }> {
+  return apiFetch<{ results: NormalizationLine[] }>("/api/ingest/preview", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({ names }),

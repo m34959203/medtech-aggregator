@@ -87,17 +87,27 @@ export interface ClinicOut {
   phone: string;
 }
 
-// --- Live-демо нормализатора ---
-export type NormMethod = "fuzzy" | "fuzzy-weak" | "semantic" | "llm" | "new";
+// --- Live-демо нормализатора (новый контракт POST /api/ingest/preview) ---
+// "panel" — исходная строка-панель разбита движком на несколько услуг.
+export type NormMethod = "fuzzy" | "fuzzy-weak" | "semantic" | "llm" | "panel" | "new";
 
-export interface NormalizationPreview {
-  raw: string;
+// Один распознанный элемент внутри строки направления.
+export interface NormItem {
   canonical: string;
   category: string;
-  confidence: number;
+  confidence: number; // 0..1
   method: NormMethod;
-  is_new: boolean;
-  candidates: string[];
+  status: "matched" | "unmatched";
+}
+
+// Одна строка исходного направления после разбора.
+// kind="noise" — служебная строка (дата/инструкция/заголовок), отфильтрована; items пуст.
+// kind="service" — содержит 1..N распознанных услуг (несколько = панель).
+export interface NormalizationLine {
+  raw: string;
+  kind: "service" | "noise";
+  reason?: string;
+  items: NormItem[];
 }
 
 // --- Кейс 1: админ-приём (дашборд, журнал, пакетная загрузка) ---

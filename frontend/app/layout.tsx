@@ -70,13 +70,8 @@ function SiteHeader() {
           >
             По рецепту
           </Link>
-          <Link
-            href="/normalizer"
-            className="font-medium text-ink-600 transition hover:text-brand-700"
-          >
-            Нормализатор
-          </Link>
-          {/* Админка скрыта от обычных пользователей: доступ только по прямой
+          {/* «Нормализатор» — внутренний инструмент, живёт в админке (/admin/normalizer).
+              Админка скрыта от обычных пользователей: доступ только по прямой
               ссылке /admin?key=ВАШ_КЛЮЧ (magic-link, см. AdminGate). */}
         </nav>
       </div>

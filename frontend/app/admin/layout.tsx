@@ -12,6 +12,7 @@ const TABS = [
   { href: "/admin", label: "Приём данных" },
   { href: "/admin/review", label: "Очередь проверки" },
   { href: "/admin/whatsapp", label: "WhatsApp" },
+  { href: "/admin/normalizer", label: "Нормализатор" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
