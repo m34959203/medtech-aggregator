@@ -33,3 +33,6 @@ backend/uploads/
 
 # MedArchive dev-фикстуры (реальные прайсы партнёров — не в git)
 .archive_samples/
+
+# Локальные бэкапы прод-БД (pg_dump/sqlite) — НЕ коммитить
+backups/
