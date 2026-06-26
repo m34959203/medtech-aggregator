@@ -55,6 +55,12 @@ async def wa_disconnect(_: bool = Depends(require_admin)):
     return await _proxy("POST", "/api/disconnect")
 
 
+@router.post("/logout")
+async def wa_logout(_: bool = Depends(require_admin)):
+    """Выйти из WhatsApp и стереть сохранённую сессию (потребуется новая привязка)."""
+    return await _proxy("POST", "/api/logout")
+
+
 @router.get("/limits")
 async def wa_limits(_: bool = Depends(require_admin)):
     return await _proxy("GET", "/api/limits")
