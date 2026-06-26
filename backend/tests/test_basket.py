@@ -56,8 +56,10 @@ def test_recommend_from_text(client):
     best = r["best_single_clinic"]
     assert best["clinic_name"] == "Клиника А" and best["covered"] == 3 and best["total"] == 6000
     assert best["missing"] == []
-    # «ФИО: Иванов» не услуга → в unrecognized
-    assert any("ФИО" in u or "Иванов" in u for u in r["unrecognized"])
+    # «ФИО: Иванов» не услуга → отфильтровано gate'ом (шум): не в recognized
+    # (и не в unrecognized — шум молча пропускается, TASK 1 боевого отчёта)
+    assert all("ФИО" not in it["input"] and "Иванов" not in it["input"]
+               for it in r["recognized"])
 
 
 def test_recommend_by_names_list(client):

@@ -262,6 +262,26 @@ def preview_normalization(payload: PreviewIn, db: Session = Depends(get_db)):
     return {"results": [norm.analyze(n) for n in names]}
 
 
+@router.post("/preview-file", dependencies=[Depends(require_admin), Depends(rate_limit("preview_file", 10))])
+async def preview_normalization_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Фото/скан/PDF направления → OCR → разбор строк (gate + панели + матч).
+
+    Распознаёт услуги/анализы с фотографии рецепта. Тот же контракт, что /preview
+    ({results:[{raw,kind,reason,items[]}]}); ничего не мутирует."""
+    from .basket import _extract_text_any, extract_service_names
+
+    content = await file.read()
+    text = _extract_text_any(file.filename or "", content)
+    lines = extract_service_names(text)
+    if not lines:
+        raise HTTPException(
+            422, "Не удалось распознать текст. Сфотографируйте направление чётче "
+                 "(хорошее освещение, без бликов) или введите строки вручную.",
+        )
+    norm = Normalizer(db)
+    return {"results": [norm.analyze(n) for n in lines], "ocr_text": text[:4000]}
+
+
 @router.post("/run-scheduled", dependencies=[Depends(require_admin)])
 def run_scheduled():
     """Запустить автосбор по всем включённым pull-источникам (web_scrape/api)."""
