@@ -35,9 +35,16 @@ ARCHIVE_FILES = 4
 ARCHIVE_CAP_PER_FILE = 120
 
 # Дополнительные живые адаптеры (подключатся, если ответят). raw_name+цена статикой.
+# Invitro — каталог анализов отдаётся СТАТИКОЙ на /analizes/ (~2126 позиций),
+# адаптер web_scraper._invitro уже разбирает .analyzes-item__total--price.
 EXTRA_WEB = [
-    # (название клиники, город, url)
+    ("Invitro — Алматы", "Алматы", "https://www.invitro.kz/analizes/"),
 ]
+
+# doq.kz — REST API api.doq.kz: клиники×услуги×цены по 12 городам РК.
+DOQ_CITIES = ["almaty", "astana", "shymkent", "aktobe"]
+DOQ_MAX_CLINICS_PER_CITY = 4   # демо-охват; в проде поднять (каждая услуга = 1 API-вызов)
+DOQ_MAX_SERVICES = 12
 
 
 def _clinic(db, name: str, city: str, website: str = "", **extra) -> Clinic:
@@ -151,6 +158,69 @@ def seed_extra_web(db, report: list[dict]) -> None:
                        "items": res.items_found})
 
 
+def seed_doq(db, report: list[dict]) -> None:
+    """doq.kz REST API: реальные клиники×услуги×цены по городам РК."""
+    try:
+        from .ingestion import doq_connector as doq
+    except Exception as e:
+        report.append({"source": "doq.kz", "status": "absent", "error": str(e)[:80]})
+        return
+    for city_slug in DOQ_CITIES:
+        try:
+            blocks = doq.fetch_all(max_clinics=DOQ_MAX_CLINICS_PER_CITY,
+                                   city_slug=city_slug, max_services=DOQ_MAX_SERVICES)
+        except doq.RobotsDisallowed as e:
+            report.append({"source": f"doq:{city_slug}", "status": "skipped_robots", "url": e.url})
+            continue
+        except Exception as e:
+            report.append({"source": f"doq:{city_slug}", "status": "error", "error": str(e)[:80]})
+            continue
+        for b in blocks:
+            cl = b.get("clinic") or {}
+            items = b.get("items") or []
+            if not items:
+                continue
+            name = f"{cl.get('name','?')} (doq)"
+            clinic = _clinic(db, name, cl.get("city") or city_slug,
+                             website=cl.get("source_url") or cl.get("website") or "",
+                             address=cl.get("address") or "", phone=cl.get("phone") or "",
+                             lat=cl.get("lat"), lng=cl.get("lng"),
+                             rating=cl.get("rating"), online_booking=True)
+            src = _source(db, clinic.id, "api", cl.get("source_url") or f"doq:{cl.get('id')}")
+            res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="api",
+                               items=items, fmt="json", source_id=src.id)
+            report.append({"source": f"doq:{name}", "status": "ok", "clinic": name,
+                           "city": clinic.city, "items": res.items_found, "matched": res.matched})
+
+
+def seed_103(db, report: list[dict]) -> None:
+    """103.kz — прайсы сотен клиник РК (через харвестер, если он собран)."""
+    try:
+        from .ingestion import o103_harvester as o103
+    except Exception as e:
+        report.append({"source": "103.kz", "status": "absent", "error": str(e)[:80]})
+        return
+    try:
+        blocks = o103.harvest_known()
+    except Exception as e:
+        report.append({"source": "103.kz", "status": "error", "error": str(e)[:80]})
+        return
+    for b in blocks:
+        cl = b.get("clinic") or {}
+        items = b.get("items") or []
+        if not items:
+            continue
+        name = f"{cl.get('name','?')} (103.kz)"
+        clinic = _clinic(db, name, cl.get("city") or "", website=cl.get("source_url") or "",
+                         address=cl.get("address") or "", phone=cl.get("phone") or "",
+                         lat=cl.get("lat"), lng=cl.get("lng"))
+        src = _source(db, clinic.id, "web_scrape", cl.get("source_url") or name)
+        res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",
+                           items=items, fmt="html", source_id=src.id)
+        report.append({"source": f"103:{name}", "status": "ok", "clinic": name,
+                       "city": clinic.city, "items": res.items_found, "matched": res.matched})
+
+
 def main() -> dict:
     migrate()
     # Семантический реранкер — фишка живых одиночных запросов; в bulk-сиде он
@@ -168,7 +238,9 @@ def main() -> dict:
     try:
         seed_kdl(db, report)
         seed_archive_files(db, report)
-        seed_extra_web(db, report)
+        seed_extra_web(db, report)   # invitro (статика)
+        seed_doq(db, report)         # doq.kz REST API — города РК
+        seed_103(db, report)         # 103.kz харвестер (если собран)
 
         ok = [r for r in report if r.get("status") == "ok"]
         cities = sorted({r["city"] for r in ok if r.get("city")})

@@ -18,6 +18,11 @@ fastembed==0.8.0
 numpy==2.2.1
 httpx==0.28.1
 beautifulsoup4==4.12.3
+protego==0.6.2          # robots.txt с Google-спек wildcards — соблюдение robots при автосборе
+python-docx==1.2.0      # DOCX-прайсы (вкл. tracked changes) в основном канале приёма
+xlrd==2.0.2             # старый .xls (OLE2)
+lxml==6.0.2             # tracked changes в DOCX, парсинг XML
+# playwright — опционально, для SPA-источников (INVIVO/Helix/Emirmed); web_scraper.scrape_dynamic
 groq==0.13.1
 python-dotenv==1.0.1
 pytest==8.3.4
