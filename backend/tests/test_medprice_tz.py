@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -122,6 +122,27 @@ def test_clinic_profile_lists_all_services(client):
     assert p["name"] == "Дешёвая" and p["working_hours"] == "09-18"
     assert p["rating"] == 4.8 and p["online_booking"] is True
     assert p["services_count"] == 1 and p["services"][0]["price"] == 1500
+
+
+def test_null_is_active_treated_as_fresh(client):
+    # Перенесённые/легаси строки имеют is_active=NULL — выдача НЕ должна их отсекать
+    # (баг cutover: bool(None)=False прятал все 801 прод-цену). NULL = активна.
+    # NULL ставим сырым SQL: в проде additive-колонка nullable (модель NOT NULL,
+    # ORM бы не дал записать None — а легаси-строки именно NULL).
+    db = client.Session()
+    db.execute(text("UPDATE prices SET is_active = NULL"))
+    db.commit(); db.close()
+    r = client.get(f"/api/compare/{client.sid}").json()
+    assert r["offers_count"] == 2  # обе цены остаются в выдаче
+
+
+def test_explicit_false_is_active_excluded(client):
+    # А вот ЯВНЫЙ False (scheduler пометил протухшей) — отсекаем.
+    db = client.Session()
+    db.query(Price).filter(Price.clinic_id == 2).first().is_active = False
+    db.commit(); db.close()
+    r = client.get(f"/api/compare/{client.sid}").json()
+    assert r["offers_count"] == 1 and r["offers"][0]["clinic_name"] == "Дешёвая"
 
 
 def test_stale_price_excluded_from_results(client):
