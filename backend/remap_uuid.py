@@ -71,10 +71,13 @@ def remap(src_url: str, dst_url: str) -> dict[str, int]:
             (Price, prices), (PriceHistory, history)]
     with Session(dst) as ds:
         for model, data in plan:
+            cols = {c.name for c in model.__table__.columns}
             for row in data:
-                # отбрасываем колонки, которых нет в новой схеме (на всякий случай)
-                cols = {c.name for c in model.__table__.columns}
-                ds.execute(model.__table__.insert().values(**{k: v for k, v in row.items() if k in cols}))
+                # отбрасываем колонки вне новой схемы И None-значения (старые
+                # additive-колонки были nullable) — тогда применяется колоночный
+                # default (NOT NULL «»/True) либо NULL для nullable-полей.
+                vals = {k: v for k, v in row.items() if k in cols and v is not None}
+                ds.execute(model.__table__.insert().values(**vals))
             ds.commit()
             counts[model.__tablename__] = len(data)
             print(f"  {model.__tablename__}: {len(data)}")
