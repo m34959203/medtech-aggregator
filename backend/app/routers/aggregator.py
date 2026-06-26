@@ -96,16 +96,15 @@ def categories(db: Session = Depends(get_db)):
 
 @router.get("/cities", response_model=list[str])
 def cities(db: Session = Depends(get_db)):
-    """Все города РК из канонического справочника ∪ города с данными (§3.3/§7).
+    """Города для фильтра — ТОЛЬКО те, где реально есть цены (без пустых).
 
-    Платформа знает все 90 городов РК; города без прайсов = «зарегистрирован,
-    данных нет» (прозрачный охват рынка). Города с данными — первыми.
+    Полный охват всех 90 городов РК (вкл. «зарегистрирован, данных нет») —
+    в отдельном `/cities/coverage`; фильтр не засоряем пустыми городами.
     """
-    rows = db.query(distinct(Clinic.city)).all()
-    with_data = sorted(r[0] for r in rows if r[0])
-    seen = set(with_data)
-    rest = sorted(c for c in kz_cities.names() if c not in seen)
-    return with_data + rest
+    rows = (db.query(distinct(Clinic.city))
+            .join(Price, Price.clinic_id == Clinic.id)
+            .all())
+    return sorted(r[0] for r in rows if r[0])
 
 
 @router.get("/cities/coverage")
