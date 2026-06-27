@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { chat, chatVision, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
@@ -26,6 +27,15 @@ const SUGGESTIONS = [
 ];
 
 const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, "")}`;
+// Маршрут в Яндекс.Картах: по координатам клиники (как на /service и /recipe).
+const routeHref = (lat: number, lng: number) =>
+  `https://yandex.ru/maps/?rtext=~${lat},${lng}&rtt=auto`;
+// service_id распознанной услуги ищем среди офферов (recognized = canonical_name).
+const serviceIdFor = (name: string, offers?: ChatOffer[]) =>
+  offers?.find((o) => o.service === name)?.service_id;
+// Уникальные service_id ответа (для CTA «Собрать корзину» → /recipe?services=…).
+const basketIds = (offers?: ChatOffer[]) =>
+  Array.from(new Set((offers ?? []).map((o) => o.service_id))).filter(Boolean);
 
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -153,16 +163,23 @@ export default function ChatWidget() {
                     {m.content}
                   </div>
                   {m.recognized && m.recognized.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
                       <span className="text-[10px] text-ink-400">Распознано:</span>
-                      {m.recognized.slice(0, 8).map((r, j) => (
-                        <span
-                          key={j}
-                          className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700 ring-1 ring-inset ring-brand-100"
-                        >
-                          {r}
-                        </span>
-                      ))}
+                      {m.recognized.slice(0, 8).map((r, j) => {
+                        const sid = serviceIdFor(r, m.offers);
+                        const cls =
+                          "rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700 ring-1 ring-inset ring-brand-100";
+                        // Чип услуги → полное сравнение /service/{id} (карта + запись).
+                        return sid ? (
+                          <Link key={j} href={`/service/${sid}`} className={cls + " transition hover:bg-brand-100"}>
+                            {r} →
+                          </Link>
+                        ) : (
+                          <span key={j} className={cls}>
+                            {r}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                   {m.offers && m.offers.length > 0 && (
@@ -183,7 +200,7 @@ export default function ChatWidget() {
                               {formatPrice(o.price, o.currency)}
                             </span>
                           </div>
-                          <div className="mt-0.5 flex items-center justify-between gap-2 text-ink-500">
+                          <div className="mt-0.5 flex items-center gap-2 text-ink-500">
                             <span className="truncate">
                               {o.is_cheapest && <span className="mr-1">🏆</span>}
                               {o.service}
@@ -191,14 +208,42 @@ export default function ChatWidget() {
                                 ? ` · ${o.district || o.city}`
                                 : ""}
                             </span>
+                          </div>
+                          {/* Конечные действия (CTA): из результата — к услуге/клинике */}
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                            <Link
+                              href={`/service/${o.service_id}?clinic=${o.clinic_id}`}
+                              className="rounded-lg bg-brand-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-brand-700"
+                            >
+                              Сравнить и записаться
+                            </Link>
+                            {o.lat != null && o.lng != null && (
+                              <a
+                                href={routeHref(o.lat, o.lng)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-brand-600 hover:underline"
+                              >
+                                Маршрут
+                              </a>
+                            )}
                             {o.phone && (
-                              <a href={telHref(o.phone)} className="whitespace-nowrap font-medium text-brand-600 hover:underline">
+                              <a href={telHref(o.phone)} className="font-medium text-brand-600 hover:underline">
                                 Позвонить
                               </a>
                             )}
                           </div>
                         </div>
                       ))}
+                      {/* Итоговый CTA: из чата — в готовый выгодный маршрут «всё в одной клинике» */}
+                      {basketIds(m.offers).length > 0 && (
+                        <Link
+                          href={`/recipe?services=${basketIds(m.offers).join(",")}`}
+                          className="flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 transition hover:bg-brand-100"
+                        >
+                          🛒 Собрать корзину
+                        </Link>
+                      )}
                     </div>
                   )}
                 </div>

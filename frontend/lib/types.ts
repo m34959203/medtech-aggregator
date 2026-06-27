@@ -335,6 +335,8 @@ export interface ChatMessage {
 }
 
 export interface ChatOffer {
+  service_id: string; // uuid услуги (§2.2) — для CTA: /service/{service_id}
+  clinic_id: string; // uuid клиники (§2.2) — для CTA-подсветки оффера
   service: string;
   clinic_name: string;
   city: string;
@@ -344,6 +346,8 @@ export interface ChatOffer {
   price: number;
   currency: string;
   is_cheapest: boolean;
+  lat?: number | null; // координаты клиники → CTA «Маршрут» (Яндекс)
+  lng?: number | null;
 }
 
 export interface ChatResponse {

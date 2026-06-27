@@ -93,6 +93,8 @@ def test_search_offers_single_cheapest_and_city_filter(db):
     assert all(o.city == "Караганда" for o in offers)
     assert all(o.service == "Общий анализ крови" for o in offers)
     assert sum(1 for o in offers if o.is_cheapest) == 1
+    # CTA-данные: каждый оффер несёт service_id/clinic_id (uuid) для ссылок фронта
+    assert all(o.service_id and o.clinic_id for o in offers)
 
 
 def test_chat_provider_selection():

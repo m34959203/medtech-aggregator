@@ -10,10 +10,10 @@ export default async function ServicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ city?: string }>;
+  searchParams: Promise<{ city?: string; clinic?: string }>;
 }) {
   const { id } = await params;
-  const { city = "" } = await searchParams;
+  const { city = "", clinic = "" } = await searchParams;
   // service_id — uuid-строка из URL (§2.2), без приведения к числу.
   const serviceId = id;
   if (!serviceId) notFound();
@@ -54,6 +54,7 @@ export default async function ServicePage({
         initial={initial}
         cities={cities}
         initialCity={city}
+        highlightClinicId={clinic || undefined}
       />
     </div>
   );

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   getCities,
@@ -14,6 +15,16 @@ import type { BasketItem, BasketResult } from "@/lib/types";
 const SAMPLE = "Например:\nОбщий анализ крови\nГлюкоза\nТТГ\nВитамин D";
 
 export default function RecipePage() {
+  // useSearchParams требует Suspense-границы в app-router (Next 15/16).
+  return (
+    <Suspense fallback={null}>
+      <RecipeInner />
+    </Suspense>
+  );
+}
+
+function RecipeInner() {
+  const searchParams = useSearchParams();
   const [text, setText] = useState("");
   const [city, setCity] = useState("");
   const [cities, setCities] = useState<string[]>([]);
@@ -21,10 +32,26 @@ export default function RecipePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const prefilled = useRef(false);
 
   useEffect(() => {
     getCities().then(setCities).catch(() => {});
   }, []);
+
+  // Префилл из чата: /recipe?services=<id1,id2>[&city=…] — сразу собираем корзину
+  // по точным service_id (без повторного матча по имени).
+  useEffect(() => {
+    if (prefilled.current) return;
+    const ids = (searchParams.get("services") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ids.length === 0) return;
+    prefilled.current = true;
+    const c = searchParams.get("city") || "";
+    if (c) setCity(c);
+    run(recommendBasket({ service_ids: ids, city: c || undefined }));
+  }, [searchParams]);
 
   async function run(promise: Promise<BasketResult>) {
     setLoading(true);

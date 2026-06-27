@@ -27,6 +27,24 @@ from .aggregator import _build_comparison
 router = APIRouter(prefix="/api/basket", tags=["basket"])
 
 _BULLET = re.compile(r"^\s*(?:\d+[.):]\s*|[-•·*]\s*)")
+# Единый разделитель списков услуг в одной строке: запятая / слэш / плюс.
+# «ОАК, ОАМ», «АЛТ/АСТ», «глюкоза+холестерин» → отдельные услуги. Один парсер
+# на чат-OCR и /recipe — иначе экстракторы расходятся (чат дробил, рецепт нет).
+_LIST_SEP = re.compile(r"\s*[,/+]\s*")
+
+
+def _split_list_items(line: str) -> list[str]:
+    """Дробит уже отсеянную строку на услуги-перечисления (запятая/«/»/«+»).
+
+    Строку-заголовок отсекает line-gate ДО вызова (см. extract_service_names),
+    поэтому здесь только структурный фильтр осколков: длина ≥3 и есть буквы
+    (чтобы «12.06» из хвоста перечисления не стало услугой)."""
+    out: list[str] = []
+    for part in _LIST_SEP.split(line):
+        p = part.strip(" .:-—\t")
+        if len(p) >= 3 and re.search(r"[A-Za-zА-Яа-яЁё]{2,}", p):
+            out.append(p)
+    return out or [line]
 # Пользовательский рецепт строже ингеста: ложное «узнавание» мусора («HemoglobinX»,
 # «Test 123») вводит пациента в заблуждение. fuzzy ≥0.72, семантика ≥0.85
 # (мед-косинусы 0.72–0.85 ненадёжны — модель путает по смыслу). Ниже — «не распознано».
@@ -49,7 +67,9 @@ def extract_service_names(text: str) -> list[str]:
             continue
         if classify_line(line)[0] == "noise":
             continue  # заголовок/ФИО/дата/инструкция — не услуга
-        names.append(line)
+        # Перечисление в одной строке («ОАК, ОАМ») → отдельные услуги. Единый
+        # парсер для чат-OCR и /recipe (оба зовут extract_service_names).
+        names.extend(_split_list_items(line))
     return names[:30]
 
 
@@ -85,7 +105,8 @@ def _extract_text_any(filename: str, content: bytes) -> str:
     return content.decode("utf-8", errors="ignore")
 
 
-def _recommend(db: Session, names: list[str], city: str | None) -> dict:
+def _recommend(db: Session, names: list[str], city: str | None,
+               service_ids: list[str] | None = None) -> dict:
     norm = Normalizer(db)
     items: list[dict] = []
     unrecognized: list[str] = []
@@ -117,6 +138,20 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
             })
             if svc.id not in c["prices"] or o.price < c["prices"][svc.id]:
                 c["prices"][svc.id] = o.price
+
+    # Префилл из чата: точные service_id (uuid) — берём услуги напрямую, без
+    # повторного фаззи-матча по имени (он уже сделан в чат-OCR). Строку из URL
+    # приводим к uuid.UUID — колонка id типизирована (SQLite/PG не глотают str).
+    if service_ids:
+        import uuid as _uuid
+        for sid in service_ids:
+            try:
+                key = sid if isinstance(sid, _uuid.UUID) else _uuid.UUID(str(sid))
+            except (ValueError, AttributeError, TypeError):
+                continue
+            svc = db.get(ServiceCatalog, key)
+            if svc:
+                _add_service(svc, svc.canonical_name, 1.0)
 
     # Каждую строку — через полный разбор: gate шума (ФИО/дата/заголовок не услуги),
     # декомпозиция панелей (липидограмма→4), строгий матч с порогом отказа.
@@ -171,16 +206,17 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
 class BasketIn(BaseModel):
     text: str | None = None
     names: list[str] | None = None
+    service_ids: list[str] | None = None  # точный префилл из чата (CTA «Собрать корзину»)
     city: str | None = None
 
 
 @router.post("/recommend", dependencies=[Depends(rate_limit("basket", 15))])
 def recommend(payload: BasketIn, db: Session = Depends(get_db)):
-    """Текст направления (или список услуг) → рекомендация где сдать выгодно."""
+    """Текст направления (или список услуг/ids) → рекомендация где сдать выгодно."""
     names = payload.names or extract_service_names(payload.text or "")
-    if not names:
+    if not names and not payload.service_ids:
         raise HTTPException(422, "Не удалось выделить услуги из текста направления.")
-    return _recommend(db, names, payload.city)
+    return _recommend(db, names, payload.city, service_ids=payload.service_ids)
 
 
 @router.post("/recommend-file", dependencies=[Depends(rate_limit("basket_file", 10))])

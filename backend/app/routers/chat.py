@@ -47,7 +47,12 @@ class ChatRequest(BaseModel):
 
 
 class ChatOffer(BaseModel):
-    """Предложение для карточек в виджете (фронт рендерит ссылку/телефон)."""
+    """Предложение для карточек в виджете (фронт рендерит ссылку/телефон).
+
+    service_id/clinic_id (uuid, §2.2) нужны фронту для конечных действий (CTA):
+    чип услуги → /service/{service_id}, оффер → /service/{id}?clinic={clinic_id}."""
+    service_id: str
+    clinic_id: str
     service: str
     clinic_name: str
     city: str
@@ -57,6 +62,8 @@ class ChatOffer(BaseModel):
     price: float
     currency: str
     is_cheapest: bool
+    lat: float | None = None  # координаты клиники → CTA «Маршрут» (Яндекс)
+    lng: float | None = None
 
 
 class ChatResponse(BaseModel):
@@ -127,6 +134,8 @@ def _search_offers(
                 marked = True
             offers.append(
                 ChatOffer(
+                    service_id=str(cmp.service_id),
+                    clinic_id=str(o.clinic_id),
                     service=cmp.canonical_name,
                     clinic_name=o.clinic_name,
                     city=o.city,
@@ -136,6 +145,8 @@ def _search_offers(
                     price=o.price,
                     currency=o.currency,
                     is_cheapest=is_cheapest,
+                    lat=o.lat,
+                    lng=o.lng,
                 )
             )
     return offers, summaries
@@ -285,9 +296,11 @@ def _offers_for_names(db: Session, names: list[str], city: str | None, per_servi
                 is_cheapest = not marked and o.price == cheapest
                 marked = marked or is_cheapest
                 offers.append(ChatOffer(
+                    service_id=str(cmp.service_id), clinic_id=str(o.clinic_id),
                     service=cmp.canonical_name, clinic_name=o.clinic_name, city=o.city,
                     district=o.district, address=o.address, phone=o.phone,
                     price=o.price, currency=o.currency, is_cheapest=is_cheapest,
+                    lat=o.lat, lng=o.lng,
                 ))
     return offers, summaries
 

@@ -23,9 +23,10 @@ interface Props {
   initial: ServiceComparison;
   cities: string[];
   initialCity?: string;
+  highlightClinicId?: string; // приход из чата (?clinic=) — подсветить оффер
 }
 
-export default function ComparisonView({ serviceId, initial, cities, initialCity = "" }: Props) {
+export default function ComparisonView({ serviceId, initial, cities, initialCity = "", highlightClinicId }: Props) {
   const [data, setData] = useState<ServiceComparison>(initial);
   const [city, setCity] = useState(initialCity);
   const [sort, setSort] = useState<SortOrder>("price_asc");
@@ -45,7 +46,8 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Клиника, выбранная кликом по карточке (или метке) — для синхронизации с картой.
-  const [activeClinicId, setActiveClinicId] = useState<string | undefined>(undefined);
+  // Стартовое значение — из чата (?clinic=): сразу подсветить и подскроллить оффер.
+  const [activeClinicId, setActiveClinicId] = useState<string | undefined>(highlightClinicId);
   const abortRef = useRef<AbortController | null>(null);
   const firstRun = useRef(true);
 

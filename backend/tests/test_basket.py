@@ -143,6 +143,36 @@ def test_extract_drops_referral_header(client):
     assert out == ["Общий анализ крови", "Глюкоза"]
 
 
+def test_extract_splits_inline_list(client):
+    """Единый парсер списков: перечисление в одной строке (запятая/«+»/«/»)
+    дробится на отдельные услуги — чтобы чат-OCR и /recipe не расходились
+    (баг боевого отчёта: чат дробил «ОАК, ОАМ», /recipe — нет)."""
+    from app.routers.basket import extract_service_names
+    assert extract_service_names("ОАК, ОАМ") == ["ОАК", "ОАМ"]
+    assert extract_service_names("АЛТ/АСТ") == ["АЛТ", "АСТ"]
+    assert extract_service_names("глюкоза + холестерин") == ["глюкоза", "холестерин"]
+    # многострочный + перечисления вместе
+    assert extract_service_names("Общий анализ крови\nТТГ, Витамин D") == [
+        "Общий анализ крови", "ТТГ", "Витамин D",
+    ]
+
+
+def test_recommend_by_service_ids(client):
+    """CTA «Собрать корзину»: /recipe шлёт точные service_id — корзина строится
+    напрямую, без повторного фаззи-матча по имени."""
+    from app.models import ServiceCatalog
+    # достаём реальные uuid услуг из in-memory БД через сам же эндпоинт
+    ids = []
+    for nm in ("ОАК", "Глюкоза"):
+        rr = client.post("/api/basket/recommend", json={"names": [nm]}).json()
+        ids.append(rr["recognized"][0]["service_id"])
+    r = client.post("/api/basket/recommend",
+                    json={"service_ids": ids, "city": "Алматы"}).json()
+    assert r["services_found"] == 2
+    assert {it["canonical"] for it in r["recognized"]} == {
+        "Общий анализ крови", "Глюкоза (в крови)"}
+
+
 def test_chat_rank_plain_analyte_prefers_blood():
     """«Глюкоза» в чате не должна тянуть мочевой вариант (дефолт=кровь)."""
     from app.routers.chat import _rank_services

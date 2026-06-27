@@ -331,6 +331,7 @@ import type { BasketResult, PortalView } from "./types";
 export function recommendBasket(input: {
   text?: string;
   names?: string[];
+  service_ids?: string[]; // точный префилл из чата (CTA «Собрать корзину»)
   city?: string;
 }): Promise<BasketResult> {
   return apiFetch<BasketResult>("/api/basket/recommend", {
