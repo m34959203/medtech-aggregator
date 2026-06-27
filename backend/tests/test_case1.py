@@ -49,7 +49,7 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = _override
-    c = TestClient(app); c.cid1 = cid1; c.cid2 = cid2
+    c = TestClient(app); c.cid1 = cid1; c.cid2 = cid2; c.Session = TestingSession
     yield c
     app.dependency_overrides.clear()
 
@@ -181,3 +181,32 @@ def test_review_report_status(client):
     rid = client.get("/api/review/queue").json()["reports"][0]["id"]
     assert client.post(f"/api/review/report/{rid}", json={"status": "fixed"}).status_code == 200
     assert not client.get("/api/review/queue").json()["reports"]  # ушла из очереди
+
+
+def test_anonymous_clinics_hidden_from_public_aggregator(client):
+    """Обезличенные клиники (is_public=False) не попадают в публичный поиск/сравнение/
+    список клиник, но их цены остаются в БД (Кейс-2/MedArchive)."""
+    from app.models import Clinic, Price, ServiceCatalog
+
+    db = client.Session()
+    svc_id = db.query(ServiceCatalog).filter_by(canonical_name="Глюкоза (в крови)").first().id
+    # публичная клиника с ценой
+    db.add(Price(clinic_id=client.cid1, service_id=svc_id, raw_name="Глюкоза", price=900,
+                 currency="KZT", match_confidence=1.0))
+    # обезличенная архив-клиника с ценой
+    anon = Clinic(name="Клиника 9", city="", district="", address="", phone="", is_public=False)
+    db.add(anon); db.flush()
+    db.add(Price(clinic_id=anon.id, service_id=svc_id, raw_name="Глюкоза (сахар)", price=500,
+                 currency="KZT", match_confidence=1.0))
+    db.commit(); db.close()
+
+    # /api/compare — только публичный оффер (900), анонимный (500) скрыт
+    cmp = client.get(f"/api/compare/{svc_id}").json()
+    names = [o["clinic_name"] for o in cmp["offers"]]
+    assert "Клиника А" in names
+    assert "Клиника 9" not in names
+    assert cmp["offers_count"] == 1
+
+    # /api/clinics — анонимной нет
+    clinics = [c["name"] for c in client.get("/api/clinics").json()]
+    assert "Клиника 9" not in clinics

@@ -153,6 +153,7 @@ def cities(db: Session = Depends(get_db)):
     """
     rows = (db.query(distinct(Clinic.city))
             .join(Price, Price.clinic_id == Clinic.id)
+            .filter(Clinic.is_public.is_(True))
             .all())
     return sorted(r[0] for r in rows if r[0])
 
@@ -160,7 +161,9 @@ def cities(db: Session = Depends(get_db)):
 @router.get("/cities/coverage")
 def cities_coverage(db: Session = Depends(get_db)):
     """Охват рынка: каждый из 90 городов справочника + флаг наличия данных."""
-    rows = db.query(Clinic.city, func.count(Clinic.id)).group_by(Clinic.city).all()
+    rows = (db.query(Clinic.city, func.count(Clinic.id))
+            .filter(Clinic.is_public.is_(True))
+            .group_by(Clinic.city).all())
     counts: dict[str, int] = {c: n for c, n in rows if c}
     out = []
     for c in kz_cities.all_cities():
@@ -199,6 +202,7 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
         db.query(Price, Clinic)
         .join(Clinic, Price.clinic_id == Clinic.id)
         .filter(Price.service_id == service.id)
+        .filter(Clinic.is_public.is_(True))  # обезличенные архив-клиники не в публичной выдаче
     )
     if city:
         q = q.filter(Clinic.city == city)
@@ -319,6 +323,7 @@ def _fresh_cheapest_by_clinic(db: Session, service_id) -> dict:
         db.query(Price, Clinic)
         .join(Clinic, Price.clinic_id == Clinic.id)
         .filter(Price.service_id == service_id)
+        .filter(Clinic.is_public.is_(True))
         .all()
     )
     for price, clinic in rows:
@@ -392,7 +397,7 @@ def compare_clinics(body: ClinicCompareIn, db: Session = Depends(get_db)):
     columns: list[CompareColumn] = []
     for cid in clinic_ids:
         clinic = db.get(Clinic, cid)
-        if not clinic:
+        if not clinic or not clinic.is_public:
             continue
         cells, total, found = [], 0.0, 0
         for s in services:
@@ -477,6 +482,7 @@ def records(
         db.query(Price, Clinic, ServiceCatalog)
         .join(Clinic, Price.clinic_id == Clinic.id)
         .join(ServiceCatalog, Price.service_id == ServiceCatalog.id)
+        .filter(Clinic.is_public.is_(True))
     )
     if city:
         q = q.filter(Clinic.city == city)

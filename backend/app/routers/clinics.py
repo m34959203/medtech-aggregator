@@ -31,7 +31,7 @@ class ClinicIn(BaseModel):
 
 @router.get("", response_model=list[ClinicOut])
 def list_clinics(city: str | None = None, db: Session = Depends(get_db)):
-    q = db.query(Clinic)
+    q = db.query(Clinic).filter(Clinic.is_public.is_(True))
     if city:
         q = q.filter(Clinic.city == city)
     return q.order_by(Clinic.name).all()

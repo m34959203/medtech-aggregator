@@ -38,6 +38,10 @@ class Clinic(Base):
     website: Mapped[str] = mapped_column(Text, default="")          # ссылка на сайт клиники
     rating: Mapped[float | None] = mapped_column(Float, nullable=True)  # рейтинг (0..5), фильтр §3.3
     online_booking: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # есть онлайн-запись, фильтр §3.3
+    # Показывать в публичном агрегаторе (поиск/сравнение/карта). False — обезличенные
+    # архивные клиники Кейса 2 («Клиника N» без имени/контактов): остаются в MedArchive
+    # и админке, но не вводят пациента в заблуждение в публичной выдаче.
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     # Токен доступа к self-service порталу клиники (passwordless). Выдаётся админом,
     # клиника правит/подтверждает свои цены по ссылке /clinic/<token>.
     access_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
