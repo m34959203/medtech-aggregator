@@ -81,6 +81,38 @@ async def wa_send(payload: dict, _: bool = Depends(require_admin)):
     return await _proxy("POST", "/api/send", json=body)
 
 
+@router.post("/share-location")
+async def wa_share_location(payload: dict):
+    """ПУБЛИЧНО: отправить координаты клиники на WhatsApp пользователя через наш шлюз.
+
+    Транзакционная отправка по явному запросу пользователя (он сам ввёл свой номер,
+    чтобы получить адрес) — обходит гейт «клиент написал первым», но дневной лимит
+    шлюза остаётся как анти-бан-подушка. Используется кнопкой карты на ПК (на мобиле
+    фронт открывает нативный WhatsApp через wa.me).
+    """
+    p = payload or {}
+    phone = "".join(ch for ch in str(p.get("phone", "")) if ch.isdigit())
+    if len(phone) < 10:
+        raise HTTPException(400, "Введите номер с кодом страны")
+    name = (p.get("clinic_name") or "клиника").strip()
+    address = (p.get("address") or "").strip()
+    try:
+        lat = float(p["lat"]); lng = float(p["lng"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(400, "Неверные координаты")
+    lines = [f"📍 {name}"]
+    if address:
+        lines.append(address)
+    lines += [
+        f"Координаты: {lat:.6f}, {lng:.6f}",
+        f"На карте: https://yandex.ru/maps/?pt={lng:.6f},{lat:.6f}&z=17&l=map",
+        f"Маршрут: https://yandex.ru/maps/?rtext=~{lat:.6f},{lng:.6f}&rtt=auto",
+    ]
+    message = "\n".join(lines)
+    return await _proxy("POST", "/api/send",
+                        json={"phone": phone, "message": message, "transactional": True})
+
+
 @router.post("/inbound")
 async def wa_inbound(payload: dict, request: Request,
                      x_webhook_secret: str | None = Header(default=None)):

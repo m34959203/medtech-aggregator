@@ -142,6 +142,9 @@ type SendJob = {
   message: string;
   leadId?: string | null;
   bypassGates?: boolean;
+  // Транзакционное сообщение по явному запросу пользователя (напр. «прислать
+  // координаты»): обходит ТОЛЬКО гейт «клиент написал первым», но НЕ дневной лимит.
+  transactional?: boolean;
   resolve: (v: { success: true; messageId: string } | { success: false; error: string; status: number }) => void;
 };
 const sendQueue: SendJob[] = [];
@@ -183,14 +186,14 @@ async function processQueue() {
 }
 
 async function runSendJob(job: SendJob) {
-  const { chatId, message, leadId, bypassGates } = job;
+  const { chatId, message, leadId, bypassGates, transactional } = job;
 
   if (connectionStatus !== 'connected' || !socket) {
     job.resolve({ success: false, error: 'WhatsApp not connected', status: 400 });
     return;
   }
 
-  if (!bypassGates && REQUIRE_CLIENT_INITIATED) {
+  if (!bypassGates && !transactional && REQUIRE_CLIENT_INITIATED) {
     const ok = await hasIncomingFrom(chatId).catch(() => false);
     if (!ok) {
       job.resolve({
@@ -250,7 +253,7 @@ async function runSendJob(job: SendJob) {
 
 // Send text message
 app.post('/api/send', async (req, res) => {
-  const { phone, message, leadId, bypassGates } = req.body || {};
+  const { phone, message, leadId, bypassGates, transactional } = req.body || {};
   if (!phone || !message) {
     res.status(400).json({ error: 'phone and message are required' });
     return;
@@ -260,7 +263,7 @@ app.post('/api/send', async (req, res) => {
   const result = await new Promise<
     { success: true; messageId: string } | { success: false; error: string; status: number }
   >((resolve) => {
-    sendQueue.push({ chatId, message, leadId, bypassGates: !!bypassGates, resolve });
+    sendQueue.push({ chatId, message, leadId, bypassGates: !!bypassGates, transactional: !!transactional, resolve });
     processQueue();
   });
 

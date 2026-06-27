@@ -463,3 +463,12 @@ KDL branch-страницы (abay/baykonur/erkinkala/shayan) давали «го
 - Удалено: `frontend/app/compare/page.tsx`; ссылка «Сравнение» из шапки (`layout.tsx`); осиротевший `compareClinics()` + импорты `ClinicComparison`/`ClinicCompareRequest` в `api.ts`. Типы `CompareColumn/CompareCell/ClinicComparison` в `types.ts` оставлены (безвредные, без рантайма).
 - Бэкенд `/api/compare-clinics` оставлен (не вызывается, вреда нет; убирать = ребилд бэка). Гоча: после удаления страницы `tsc` ругался на устаревшие `.next/types/app/compare/*` — лечится `rm -rf .next/types` + ребилд.
 - Прод: `/compare` → 404, главная 200, ссылок на /compare 0. Только фронт-ребилд.
+
+## Чек-поинт 2026-06-27 (#51) — «координаты в WhatsApp»: ПК через наш шлюз, мобайл через wa.me
+- **Жалоба**: кнопка «отправить координаты в WhatsApp» открывала `wa.me` (публичный click-to-chat), а не слала через наш шлюз.
+- **Решение Дмитрия**: на ПК — слать сразу с нашего номера (обойти гейт «клиент написал первым»); на мобиле — оставить `wa.me` (открывает нативное приложение).
+- **Шлюз** (`wa-gateway`): новый флаг `transactional` в `/api/send` — обходит ТОЛЬКО `REQUIRE_CLIENT_INITIATED`, дневной лимит/humanize остаются (анти-бан-подушка).
+- **Бэкенд** (`wa.py`): ПУБЛИЧНЫЙ `POST /api/wa/share-location` (без admin) — строит сообщение (название/адрес/координаты/карта/маршрут Яндекс) и шлёт через шлюз с `transactional:true`. Валидация номера ≥10 цифр.
+- **Фронт** (`ClinicMap.tsx`): в модалке `send()` определяет мобайл по UA → `wa.me`; иначе POST `shareLocationWA` (`lib/api.ts`), состояния «Отправляем…/Отправлено ✓/ошибка».
+- Verify: фронт tsc 0; шлюз TS скомпилировался в Docker; эндпоинт публичный (короткий номер→400, валидный доходит до шлюза). Ребилд wa+backend+frontend.
+- **ВАЖНО (операционный долг)**: `whatsapp_sessions` пуста — WA-номер НЕ привязан, поэтому отправка с ПК сейчас вернёт «WhatsApp not connected». Нужно привязать номер по QR в `/admin/whatsapp` (creds хранятся в PG `whatsapp_sessions`, переживают ребилд; auto-connect на старте при наличии creds). Гоча: у `medtech-wa` нет volume для auth — это ОК, т.к. auth в Postgres, не в ФС.

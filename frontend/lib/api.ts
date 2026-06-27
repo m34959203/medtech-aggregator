@@ -378,6 +378,21 @@ export function reportPrice(report: {
   });
 }
 
+// Отправка координат клиники на WhatsApp пользователя через наш шлюз (десктоп).
+export function shareLocationWA(req: {
+  phone: string;
+  clinic_name: string;
+  address?: string;
+  lat: number;
+  lng: number;
+}): Promise<{ success?: boolean; messageId?: string }> {
+  return apiFetch("/api/wa/share-location", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
 export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {
   return apiFetch<ChatResponse>("/api/chat", {
     method: "POST",

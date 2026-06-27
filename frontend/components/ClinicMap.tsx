@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ApiError, shareLocationWA } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import type { PriceOffer } from "@/lib/types";
 
@@ -223,6 +224,8 @@ export default function ClinicMap({
 function WaShareModal({ data, onClose }: { data: WaShareData; onClose: () => void }) {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -234,14 +237,43 @@ function WaShareModal({ data, onClose }: { data: WaShareData; onClose: () => voi
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  function send() {
+  async function send() {
     const digits = phone.replace(/[^0-9]/g, "");
     if (digits.length < 10) {
       setError("Введите номер с кодом страны, например +7 700 123 45 67");
       return;
     }
-    window.open(`https://wa.me/${digits}?text=${data.text}`, "_blank", "noopener");
-    onClose();
+    // На мобильных — открываем нативный WhatsApp (удобнее, приложение установлено).
+    const isMobile =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent);
+    if (isMobile) {
+      window.open(`https://wa.me/${digits}?text=${data.text}`, "_blank", "noopener");
+      onClose();
+      return;
+    }
+    // На ПК — отправляем сообщение через НАШ WhatsApp-шлюз (не открываем wa.me).
+    setBusy(true);
+    setError(null);
+    try {
+      await shareLocationWA({
+        phone: digits,
+        clinic_name: data.clinicName,
+        address: data.address,
+        lat: data.lat,
+        lng: data.lng,
+      });
+      setSent(true);
+      setTimeout(onClose, 1600);
+    } catch (e) {
+      setError(
+        e instanceof ApiError && e.message
+          ? e.message
+          : "Не удалось отправить. Попробуйте позже.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -299,6 +331,11 @@ function WaShareModal({ data, onClose }: { data: WaShareData; onClose: () => voi
           className="mt-1 w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-800 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
         />
         {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
+        {sent && (
+          <p className="mt-1.5 text-xs font-medium text-emerald-600">
+            Отправлено в WhatsApp ✓ Проверьте сообщения.
+          </p>
+        )}
 
         <div className="mt-4 flex gap-2">
           <button
@@ -306,17 +343,18 @@ function WaShareModal({ data, onClose }: { data: WaShareData; onClose: () => voi
             onClick={onClose}
             className="flex-1 rounded-full border border-ink-200 px-4 py-2.5 text-sm font-medium text-ink-600 transition hover:bg-ink-50"
           >
-            Отмена
+            {sent ? "Закрыть" : "Отмена"}
           </button>
           <button
             type="button"
             onClick={send}
-            className="flex flex-[1.4] items-center justify-center gap-2 rounded-full bg-[#25D366] px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-95"
+            disabled={busy || sent}
+            className="flex flex-[1.4] items-center justify-center gap-2 rounded-full bg-[#25D366] px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
               <path d="M12 2a10 10 0 00-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1012 2zm5.8 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5-4.5-.2-.2-1.2-1.6-1.2-3s.7-2.1 1-2.4c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.1.3.7 1.1 1.5 1.8 1 .9 1.8 1.1 2.1 1.3.2.1.4.1.5-.1l.6-.8c.2-.3.4-.2.6-.1l1.9.9c.3.1.4.2.5.3 0 .2 0 .8-.2 1.3z" />
             </svg>
-            Отправить
+            {busy ? "Отправляем…" : sent ? "Отправлено" : "Отправить"}
           </button>
         </div>
       </div>
