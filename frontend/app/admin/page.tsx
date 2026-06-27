@@ -1,61 +1,101 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   catalogExportUrl,
   getIngestionRuns,
   getIngestionStats,
+  getPartners,
   issuePortalAccess,
   runScheduled,
   scrapeSite,
   uploadArchive,
   uploadBatch,
+  waStatus,
 } from "@/lib/api";
+import type { Partner, WaStatus } from "@/lib/api";
 import type { BatchResult, IngestionRun, IngestionStats } from "@/lib/types";
+
+const AUTO_REFRESH_MS = 30_000;
 
 export default function AdminPage() {
   const [stats, setStats] = useState<IngestionStats | null>(null);
   const [runs, setRuns] = useState<IngestionRun[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [wa, setWa] = useState<WaStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setRefreshing(true);
     try {
-      const [s, r] = await Promise.all([getIngestionStats(), getIngestionRuns(50)]);
+      const [s, r, w] = await Promise.all([
+        getIngestionStats(),
+        getIngestionRuns(50),
+        waStatus().catch(() => null), // туннель опционален — не валим дашборд
+      ]);
       setStats(s);
       setRuns(r);
+      setWa(w);
+      setUpdatedAt(Date.now());
       setError(null);
     } catch (e) {
       setError(
         e instanceof ApiError ? `Ошибка сервера: ${e.message}` : "Бэкенд недоступен.",
       );
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
     }
   }, []);
 
+  // Список клиник для пикеров — грузим один раз.
+  useEffect(() => {
+    getPartners()
+      .then(setPartners)
+      .catch(() => setPartners([]));
+  }, []);
+
+  // Первичная загрузка + авто-обновление статистики/журнала/WA.
   useEffect(() => {
     refresh();
+    const t = setInterval(refresh, AUTO_REFRESH_MS);
+    return () => clearInterval(t);
   }, [refresh]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
       <header className="mb-8">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200">
-          Кейс 1 · приём данных
-        </span>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight text-ink-900">
-          Конвейер приёма прайсов
-        </h1>
-        <p className="mt-2 max-w-2xl text-ink-600">
-          Пакетная обработка архива прайсов клиник, экспорт единого каталога и
-          журнал всех прогонов нормализации.
-        </p>
-        <Link
-          href="/admin/review"
-          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline"
-        >
-          → Очередь на проверку (спорные сопоставления и жалобы)
-        </Link>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200">
+              Кейс 1 · приём данных
+            </span>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight text-ink-900">
+              Конвейер приёма прайсов
+            </h1>
+            <p className="mt-2 max-w-2xl text-ink-600">
+              Пакетная обработка архива прайсов клиник, экспорт единого каталога и
+              журнал всех прогонов нормализации.
+            </p>
+          </div>
+          <RefreshControl updatedAt={updatedAt} refreshing={refreshing} onRefresh={refresh} />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm font-medium">
+          <Link href="/admin/review" className="text-brand-700 hover:underline">
+            → Очередь на проверку
+          </Link>
+          <Link href="/admin/whatsapp" className="text-brand-700 hover:underline">
+            → WhatsApp-туннель
+          </Link>
+          <Link href="/admin/normalizer" className="text-brand-700 hover:underline">
+            → Нормализатор
+          </Link>
+        </div>
       </header>
 
       {error && (
@@ -64,23 +104,73 @@ export default function AdminPage() {
         </div>
       )}
 
-      <HealthBanner stats={stats} />
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <HealthBanner stats={stats} loading={loading} />
+        </div>
+        <WaStatusCard wa={wa} loading={loading} />
+      </div>
 
-      <StatsGrid stats={stats} />
+      <StatsGrid stats={stats} loading={loading} />
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <ExportCard />
-        <BatchUploadCard onDone={refresh} />
-        <ScrapeCard onDone={refresh} />
-        <PortalIssueCard />
+        <BatchUploadCard onDone={refresh} partners={partners} />
+        <ScrapeCard onDone={refresh} partners={partners} />
+        <PortalIssueCard partners={partners} />
       </div>
 
-      <RunsTable runs={runs} />
+      <RunsTable runs={runs} loading={loading} />
     </div>
   );
 }
 
-function HealthBanner({ stats }: { stats: IngestionStats | null }) {
+function RefreshControl({
+  updatedAt,
+  refreshing,
+  onRefresh,
+}: {
+  updatedAt: number | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const [, force] = useState(0);
+  // Перерисовка раз в 10с, чтобы «N сек назад» не залипало.
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 10_000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="flex items-center gap-2 text-xs text-ink-400">
+      <span>{updatedAt ? `обновлено ${ago(updatedAt)}` : "—"}</span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={refreshing}
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 px-3 py-1.5 font-medium text-ink-600 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
+      >
+        <svg
+          viewBox="0 0 20 20"
+          fill="none"
+          className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+          aria-hidden
+        >
+          <path
+            d="M15.3 8A5.5 5.5 0 1 0 16 11"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+          <path d="M16 4v4h-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Обновить
+      </button>
+    </div>
+  );
+}
+
+function HealthBanner({ stats, loading }: { stats: IngestionStats | null; loading: boolean }) {
+  if (loading && !stats) return <div className="skeleton h-[58px] w-full rounded-xl" />;
   if (!stats) return null;
   const alerts: string[] = [];
   if (stats.failed_runs > 0) alerts.push(`${stats.failed_runs} прогонов с ошибкой`);
@@ -88,13 +178,13 @@ function HealthBanner({ stats }: { stats: IngestionStats | null }) {
   if (stats.reports_new > 0) alerts.push(`${stats.reports_new} жалоб «цена неверная» на проверку`);
   if (alerts.length === 0) {
     return (
-      <div className="mb-6 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-100">
+      <div className="flex h-full items-center rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-100">
         ✓ Конвейер здоров: ошибок и пустых прогонов нет.
       </div>
     );
   }
   return (
-    <div className="mb-6 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-inset ring-amber-100">
+    <div className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-inset ring-amber-100">
       <p className="font-medium">⚠ Требует внимания:</p>
       <ul className="mt-1 list-inside list-disc">
         {alerts.map((a) => (
@@ -105,7 +195,55 @@ function HealthBanner({ stats }: { stats: IngestionStats | null }) {
   );
 }
 
-function StatsGrid({ stats }: { stats: IngestionStats | null }) {
+function WaStatusCard({ wa, loading }: { wa: WaStatus | null; loading: boolean }) {
+  if (loading && !wa) return <div className="skeleton h-[58px] w-full rounded-xl" />;
+  const status = wa?.status ?? "disconnected";
+  const connected = status === "connected";
+  const dot = connected
+    ? "bg-emerald-500"
+    : status === "qr_ready" || status === "connecting"
+      ? "bg-amber-500"
+      : "bg-ink-300";
+  const label = connected
+    ? "WhatsApp подключён"
+    : status === "qr_ready"
+      ? "Готов к привязке (QR)"
+      : status === "connecting"
+        ? "Подключение…"
+        : "WhatsApp не привязан";
+  return (
+    <Link
+      href="/admin/whatsapp"
+      className="card flex items-center justify-between gap-3 p-4 transition hover:border-brand-300"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} />
+        <div>
+          <p className="text-sm font-medium text-ink-800">{label}</p>
+          {connected && wa?.phoneNumber ? (
+            <p className="text-xs text-ink-400">+{wa.phoneNumber}</p>
+          ) : (
+            <p className="text-xs text-ink-400">Открыть привязку →</p>
+          )}
+        </div>
+      </div>
+      <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0 text-emerald-500" fill="currentColor" aria-hidden>
+        <path d="M12 2a10 10 0 00-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1012 2zm5.8 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5-4.5-.2-.2-1.2-1.6-1.2-3s.7-2.1 1-2.4c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.1.3.7 1.1 1.5 1.8 1 .9 1.8 1.1 2.1 1.3.2.1.4.1.5-.1l.6-.8c.2-.3.4-.2.6-.1l1.9.9c.3.1.4.2.5.3 0 .2 0 .8-.2 1.3z" />
+      </svg>
+    </Link>
+  );
+}
+
+function StatsGrid({ stats, loading }: { stats: IngestionStats | null; loading: boolean }) {
+  if (loading && !stats) {
+    return (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="skeleton h-[78px] rounded-2xl" />
+        ))}
+      </div>
+    );
+  }
   const cards = [
     { label: "Клиник", value: stats?.clinics, hint: stats ? `${stats.cities} городов` : "" },
     { label: "Услуг в справочнике", value: stats?.services },
@@ -127,7 +265,7 @@ function StatsGrid({ stats }: { stats: IngestionStats | null }) {
               c.warn ? "text-amber-600" : "text-ink-900"
             }`}
           >
-            {c.value ?? "—"}
+            {c.value != null ? c.value.toLocaleString("ru-RU") : "—"}
           </p>
           {c.hint && <p className="text-xs text-ink-400">{c.hint}</p>}
         </div>
@@ -136,7 +274,107 @@ function StatsGrid({ stats }: { stats: IngestionStats | null }) {
   );
 }
 
-function ScrapeCard({ onDone }: { onDone: () => void }) {
+// Поиск-пикер клиники: имя/город вместо ручного UUID.
+function ClinicPicker({
+  value,
+  onChange,
+  partners,
+  placeholder,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  partners: Partner[];
+  placeholder?: string;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const selected = partners.find((p) => p.partner_id === value) || null;
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const list = s
+      ? partners.filter(
+          (p) => p.name.toLowerCase().includes(s) || (p.city || "").toLowerCase().includes(s),
+        )
+      : partners;
+    return list.slice(0, 40);
+  }, [q, partners]);
+
+  const display = selected ? `${selected.name}${selected.city ? ` · ${selected.city}` : ""}` : q;
+
+  return (
+    <div ref={boxRef} className="relative">
+      <input
+        type="text"
+        value={display}
+        onChange={(e) => {
+          setQ(e.target.value);
+          if (selected) onChange(""); // правка текста сбрасывает выбор
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder ?? "Клиника — начните вводить название"}
+        className="field w-full py-2 text-sm"
+        role="combobox"
+        aria-expanded={open}
+        autoComplete="off"
+      />
+      {selected && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange("");
+            setQ("");
+          }}
+          aria-label="Сбросить"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"
+        >
+          ✕
+        </button>
+      )}
+      {open && (
+        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-xl border border-ink-200 bg-white py-1 shadow-lg">
+          {filtered.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-ink-400">
+              {partners.length === 0 ? "Список клиник загружается…" : "Ничего не найдено"}
+            </li>
+          ) : (
+            filtered.map((p) => (
+              <li key={p.partner_id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(p.partner_id);
+                    setQ("");
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-ink-700 transition hover:bg-brand-50"
+                >
+                  <span className="truncate">
+                    {p.name}
+                    {p.city && <span className="text-ink-400"> · {p.city}</span>}
+                  </span>
+                  <span className="shrink-0 text-xs text-ink-300">{p.services_count}</span>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ScrapeCard({ onDone, partners }: { onDone: () => void; partners: Partner[] }) {
   const [clinicId, setClinicId] = useState("");
   const [url, setUrl] = useState("");
   const [dynamic, setDynamic] = useState(false);
@@ -185,13 +423,7 @@ function ScrapeCard({ onDone }: { onDone: () => void }) {
       </p>
 
       <div className="mt-4 space-y-3">
-        <input
-          type="text"
-          value={clinicId}
-          onChange={(e) => setClinicId(e.target.value)}
-          placeholder="clinic_id (uuid)"
-          className="field w-full py-2 text-sm"
-        />
+        <ClinicPicker value={clinicId} onChange={setClinicId} partners={partners} />
         <input
           type="url"
           value={url}
@@ -233,7 +465,7 @@ function ScrapeCard({ onDone }: { onDone: () => void }) {
   );
 }
 
-function PortalIssueCard() {
+function PortalIssueCard({ partners }: { partners: Partner[] }) {
   const [clinicId, setClinicId] = useState("");
   const [link, setLink] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -244,14 +476,8 @@ function PortalIssueCard() {
         Выдать клинике ссылку для самостоятельной проверки и подтверждения цен
         (автосбор → партнёрский актив).
       </p>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <input
-          type="text"
-          value={clinicId}
-          onChange={(e) => setClinicId(e.target.value)}
-          placeholder="ID клиники (uuid)"
-          className="field max-w-[10rem] py-2 text-sm"
-        />
+      <div className="mt-4 space-y-3">
+        <ClinicPicker value={clinicId} onChange={setClinicId} partners={partners} />
         <button
           type="button"
           disabled={!clinicId}
@@ -308,7 +534,7 @@ function ExportCard() {
   );
 }
 
-function BatchUploadCard({ onDone }: { onDone: () => void }) {
+function BatchUploadCard({ onDone, partners }: { onDone: () => void; partners: Partner[] }) {
   const [files, setFiles] = useState<File[]>([]);
   const [clinicId, setClinicId] = useState("");
   const [archiveMode, setArchiveMode] = useState(false);
@@ -342,7 +568,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
       <p className="mt-1 text-sm text-ink-500">
         Загрузите .zip или несколько прайсов (xlsx/csv/pdf/скан/фото — OCR). Клиника берётся из
         префикса имени файла <code className="rounded bg-ink-100 px-1">«&lt;id&gt;_прайс.xlsx»</code>
-        или из общего поля ниже.
+        или из пикера ниже.
         {archiveMode && (
           <span className="mt-1 block text-brand-700">
             Режим MedArchive: цены резидент/нерезидент раздельно, валидации (нерезидент≥резидент,
@@ -363,13 +589,12 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
           }}
           className="block w-full text-sm text-ink-600 file:mr-3 file:rounded-full file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ClinicPicker
             value={clinicId}
-            onChange={(e) => setClinicId(e.target.value)}
-            placeholder="clinic_id (uuid) по умолчанию (опц.)"
-            className="field max-w-[16rem] py-2 text-sm"
+            onChange={setClinicId}
+            partners={partners}
+            placeholder="Клиника по умолчанию (опц.)"
           />
           <label className="inline-flex items-center gap-2 text-sm text-ink-600">
             <input
@@ -383,15 +608,15 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
             />
             Режим MedArchive (Кейс 2)
           </label>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={loading || files.length === 0}
-            className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow transition hover:bg-brand-700 disabled:opacity-50"
-          >
-            {loading ? "Обрабатываю…" : `Обработать (${files.length})`}
-          </button>
         </div>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={loading || files.length === 0}
+          className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow transition hover:bg-brand-700 disabled:opacity-50"
+        >
+          {loading ? "Обрабатываю…" : `Обработать (${files.length})`}
+        </button>
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
 
@@ -442,7 +667,7 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
   );
 }
 
-function RunsTable({ runs }: { runs: IngestionRun[] }) {
+function RunsTable({ runs, loading }: { runs: IngestionRun[]; loading: boolean }) {
   return (
     <div className="mt-8">
       <h2 className="mb-3 text-base font-semibold text-ink-900">
@@ -463,7 +688,15 @@ function RunsTable({ runs }: { runs: IngestionRun[] }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
-              {runs.length === 0 ? (
+              {loading && runs.length === 0 ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={7} className="px-4 py-2.5">
+                      <div className="skeleton h-5 w-full rounded" />
+                    </td>
+                  </tr>
+                ))
+              ) : runs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-ink-400">
                     Прогонов пока нет — загрузите архив прайсов выше.
@@ -511,6 +744,15 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
+}
+
+function ago(ts: number): string {
+  const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (sec < 10) return "только что";
+  if (sec < 60) return `${sec} сек назад`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} мин назад`;
+  return `${Math.round(min / 60)} ч назад`;
 }
 
 function formatTime(iso: string): string {

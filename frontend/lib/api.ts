@@ -133,6 +133,17 @@ export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
   return apiFetch<ClinicOut[]>("/api/clinics", { signal });
 }
 
+// Все клиники (вкл. обезличенные архив-клиники) для админ-пикера: id + имя + город.
+export interface Partner {
+  partner_id: string;
+  name: string;
+  city: string;
+  services_count: number;
+}
+export function getPartners(signal?: AbortSignal): Promise<Partner[]> {
+  return apiFetch<Partner[]>("/api/partners", { signal });
+}
+
 // §3.4: подписка на снижение цены (уведомление в WhatsApp).
 export function subscribePrice(
   req: import("./types").SubscribeRequest,
