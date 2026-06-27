@@ -22,7 +22,10 @@ export default async function ServicePage({
   try {
     initial = await compare(serviceId, { city: city || undefined, sort: "price_asc" });
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404) notFound();
+    // 404 — услуга не найдена; 422 — невалидный uuid (старая/числовая ссылка
+    // вроде /service/1 после перехода каталога на uuid). И то, и другое → 404-страница,
+    // а не падение 500.
+    if (e instanceof ApiError && (e.status === 404 || e.status === 422)) notFound();
     throw e;
   }
 

@@ -164,19 +164,34 @@ def manual_match(body: MatchIn, db: Session = Depends(get_db)):
 
 @router.get("/archive/quality")
 def archive_quality(db: Session = Depends(get_db)):
-    """Метрики качества обработки архива для дашборда (документы, % нормализации, очередь)."""
-    total_prices = db.query(func.count(Price.id)).scalar() or 0
-    unmatched = db.query(func.count(Price.id)).filter(Price.service_id.is_(None)).scalar() or 0
-    docs = db.query(func.count(IngestionRun.id)).filter(IngestionRun.file_name != "").scalar() or 0
-    with_codes = db.query(func.count(Price.id)).filter(Price.tarificator_code != "").scalar() or 0
-    matched = total_prices - unmatched
-    auto_rate = round(100.0 * matched / max(total_prices, 1), 1)
+    """Метрики качества обработки АРХИВА (Кейс 2): считаем по позициям из архивных
+    документов (IngestionRun с сохранённым файлом), а не по всему каталогу-агрегатору
+    (Кейс 1, web-скрап) — иначе auto_rate вводит в заблуждение при 0 документов."""
+    # архивные прогоны = документы-прайсы с именем файла (push-загрузка архива)
+    archive_run_ids = [r[0] for r in db.query(IngestionRun.id)
+                       .filter(IngestionRun.file_name != "").all()]
+    docs = len(archive_run_ids)
+
+    base = db.query(func.count(Price.id)).filter(Price.run_id.in_(archive_run_ids)) \
+        if archive_run_ids else None
+    positions = (base.scalar() or 0) if base is not None else 0
+    matched = (base.filter(Price.service_id.isnot(None)).scalar() or 0) if base is not None else 0
+    unmatched = positions - matched
+    with_codes = (db.query(func.count(Price.id))
+                  .filter(Price.run_id.in_(archive_run_ids), Price.tarificator_code != "")
+                  .scalar() or 0) if archive_run_ids else 0
+    auto_rate = round(100.0 * matched / positions, 1) if positions else 0.0
+
+    # для контекста на дашборде — объём всего каталога-агрегатора (Кейс 1)
+    catalog_positions = db.query(func.count(Price.id)).scalar() or 0
     return {
         "documents": docs,
-        "positions": total_prices,
+        "positions": positions,
         "auto_normalized": matched,
         "auto_rate_percent": auto_rate,
         "unmatched_queue": unmatched,
         "with_tarificator_code": with_codes,
-        "goal_70_met": auto_rate >= 70,
+        # цель достигнута только если архив реально обработан (документы > 0)
+        "goal_70_met": docs > 0 and auto_rate >= 70,
+        "catalog_positions": catalog_positions,
     }

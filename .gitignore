@@ -40,3 +40,4 @@ backups/
 # рантайм-лог Gemini-предложений (не артефакт репо)
 backend/_gemini_windows.jsonl
 backend/_syn_from_name.py
+backend/_clean_biomat_synonyms.py

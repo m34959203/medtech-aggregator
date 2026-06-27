@@ -105,6 +105,33 @@ def _prefer_blood(raw: str, canonical: str) -> str | None:
     return base or None
 
 
+# Биоматериал-гард: стул (кал)/мокрота — сильный сигнал, что услуга НЕ кровяная.
+# Без гарда загрязнённый синоним («Кал на скрытую кровь» как синоним ОАК) даёт
+# exact-матч conf=1.0 и пачкает и привязку цен, и поиск. Слово «кровь» внутри
+# «кал на скрытую кровь» — про метод, биоматериал = стул. \b чтобы не задеть
+# «калий»/«кальций»/«шкала». Мочу НЕ трогаем — её ведёт _reroute_analyte/_prefer_blood.
+_STOOL_RE = re.compile(
+    r"\b(кал|кала|кале|калу|копрограмм\w*|копролог\w*|копроцит\w*|фекал\w*|стул)\b",
+    re.I)
+_SPUTUM_RE = re.compile(r"\bмокрот\w*", re.I)
+
+
+def _biomat_class(s: str) -> str | None:
+    """Грубый биоматериал строки: 'stool' / 'sputum' / None (кровь/прочее)."""
+    low = (s or "").lower()
+    if _STOOL_RE.search(low):
+        return "stool"
+    if _SPUTUM_RE.search(low):
+        return "sputum"
+    return None
+
+
+def _biomat_conflict(raw: str, canonical: str) -> bool:
+    """True, если сырое имя про стул/мокроту, а услуга-кандидат — нет (грубая ошибка)."""
+    rb = _biomat_class(raw)
+    return rb is not None and rb != _biomat_class(canonical)
+
+
 class Normalizer:
     def __init__(self, db: Session):
         self.db = db
@@ -157,13 +184,20 @@ class Normalizer:
     def match(self, raw: str) -> tuple[ServiceCatalog | None, float]:
         """Read-only подбор услуги под сырое имя (fuzzy → семантика) — для корзины-рецепта."""
         svc, conf = self._fuzzy(raw)
-        if conf >= self.threshold:
+        # биоматериал-гард: стул/мокрота не должны матчиться на кровяную услугу
+        # при ЛЮБОЙ уверенности (загрязнённый синоним даёт exact-хит conf=1.0,
+        # токен-оверлап «кровь» — слабый 0.6+). Конфликт ошибочен в обоих случаях.
+        if svc is not None and _biomat_conflict(raw, svc.canonical_name):
+            svc, conf = None, 0.0
+        if svc is not None and conf >= self.threshold:
             return svc, conf
         from . import semantic
         if semantic.available():
             sid, score = semantic.match(self.db, raw)
             if sid and score >= settings.semantic_threshold and score > conf:
-                return self.db.get(ServiceCatalog, sid), score
+                cand = self.db.get(ServiceCatalog, sid)
+                if cand and not _biomat_conflict(raw, cand.canonical_name):
+                    return cand, score
         return svc, conf
 
     def _semantic_match(self, raw_name: str) -> "MatchResult | None":
@@ -177,6 +211,8 @@ class Normalizer:
         svc = self.db.get(ServiceCatalog, sid)
         if not svc:
             return None
+        if _biomat_conflict(raw_name, svc.canonical_name):
+            return None  # стул/мокрота ≠ кровяная услуга — не привязываем
         rerouted = self._reroute_appointment(raw_name, svc, score) or self._reroute_analyte(raw_name, svc, score)
         if rerouted:
             return rerouted
@@ -243,6 +279,12 @@ class Normalizer:
     def normalize(self, raw_name: str) -> MatchResult:
         svc, conf = self._fuzzy(raw_name)
 
+        # 0a. биоматериал-гард: стул/мокрота на кровяную услугу — грубая ошибка
+        # при любой уверенности (exact-синоним 1.0 ИЛИ слабый токен-оверлап 0.6+).
+        # Сбрасываем → уйдёт в семантику/LLM/новую услугу/очередь, не привяжется ложно.
+        if svc is not None and _biomat_conflict(raw_name, svc.canonical_name):
+            svc, conf = None, 0.0
+
         # 0. гард: повторный приём ≠ первичный, моча ≠ кровь — отводим в свою услугу
         if svc and conf >= self.threshold:
             rerouted = self._reroute_appointment(raw_name, svc, conf) or self._reroute_analyte(raw_name, svc, conf)
@@ -267,7 +309,10 @@ class Normalizer:
             llm_conf = float(decision.get("confidence") or 0.85)
             if match_name:
                 target = self.index.get(_clean(match_name))
-                if target:
+                # биоматериал-гард и на LLM-таргет: индекс может быть загрязнён
+                # (синоним «Копрограмма»→ЭКГ), тогда даже верный вердикт LLM
+                # резолвится в чужую услугу. Конфликт → создаём новую, не привязываем.
+                if target and not _biomat_conflict(raw_name, target.canonical_name):
                     self._add_synonym(target, raw_name)
                     return MatchResult(target, max(conf, llm_conf), False)
             canonical = (decision.get("canonical") or raw_name).strip()

@@ -232,3 +232,23 @@ def test_price_history_records_only_on_change(db):
     db.commit()
     rows = db.query(PriceHistory).filter(PriceHistory.clinic_id == cid).all()
     assert [float(r.price) for r in rows] == [2000.0, 2500.0]
+
+
+def test_biomaterial_guard_blocks_stool_to_blood(db):
+    """Баг #2: загрязнённый синоним «Кал на скрытую кровь» на ОАК не должен
+    давать ложный exact-матч (стул ≠ кровь). Гард отсекает даже conf=1.0."""
+    oak = db.query(ServiceCatalog).filter_by(canonical_name="Общий анализ крови").first()
+    oak.synonyms = list(oak.synonyms) + ["Кал на скрытую кровь"]  # имитируем загрязнение
+    db.commit()
+    n = Normalizer(db)
+    # поиск: стул-имя НЕ матчится на кровяную услугу
+    svc, conf = n.match("Кал на скрытую кровь")
+    assert svc is None or svc.canonical_name != "Общий анализ крови"
+    # «Калий»/«Кальций» — НЕ стул (не должны задеваться гардом)
+    from app.ingestion.normalizer import _biomat_class
+    assert _biomat_class("Калий (К+)") is None
+    assert _biomat_class("Кальций общий") is None
+    assert _biomat_class("Кал на скрытую кровь") == "stool"
+    # приём: стул-имя не привязывается ложно к ОАК
+    res = n.normalize("Обнаружение скрытой крови в кале")
+    assert res.service is None or res.service.canonical_name != "Общий анализ крови"

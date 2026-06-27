@@ -927,6 +927,22 @@ function OfferRow({
                 Источник
               </a>
             )}
+            {hasGeo && (
+              <a
+                href={`https://yandex.ru/maps/?rtext=~${offer.lat},${offer.lng}&rtt=auto`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 underline-offset-2 transition hover:underline"
+                title="Маршрут до клиники (Яндекс.Карты)"
+              >
+                <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5" aria-hidden>
+                  <path d="M10 18s6-5.3 6-10A6 6 0 1 0 4 8c0 4.7 6 10 6 10Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                  <circle cx="10" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+                Маршрут
+              </a>
+            )}
             <ReportPriceButton
               serviceName={serviceName}
               offer={offer}
