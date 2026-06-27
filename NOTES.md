@@ -457,3 +457,9 @@ KDL branch-страницы (abay/baykonur/erkinkala/shayan) давали «го
 - **ServiceCard**: бейдж «📍 N км» = расстояние до ближайшей клиники с услугой (helper `nearestKm` по офферам, client-side haversine). Показывается только при заданном чекпоинте.
 - **ComparisonView (страница услуги)**: подхватывает тот же чекпоинт (`loadGeo` на маунте) и сохраняет (`saveGeo` при запросе гео) — единый чекпоинт между главной/выдачей/услугой.
 - Бэкенд не трогали (search/compare уже принимали user_lat/lng + haversine). Verify: tsc 0, next build ок. Прод: на главной кнопка-чекпоинт и сорт «Ближе», `/api/search?sort=distance&user_lat&user_lng` → 200. Гоча: бейдж расстояния — клиентский (нужна геолокация браузера), в SSR-HTML не виден.
+
+## Чек-поинт 2026-06-27 (#50) — удалена страница /compare (мульти-услуга × мульти-клиника)
+- **Запрос**: удалить `/compare` — не нужна, функционал работает иначе (сравнение одной услуги в 2–4 клиниках реализовано прямо на странице услуги, #46).
+- Удалено: `frontend/app/compare/page.tsx`; ссылка «Сравнение» из шапки (`layout.tsx`); осиротевший `compareClinics()` + импорты `ClinicComparison`/`ClinicCompareRequest` в `api.ts`. Типы `CompareColumn/CompareCell/ClinicComparison` в `types.ts` оставлены (безвредные, без рантайма).
+- Бэкенд `/api/compare-clinics` оставлен (не вызывается, вреда нет; убирать = ребилд бэка). Гоча: после удаления страницы `tsc` ругался на устаревшие `.next/types/app/compare/*` — лечится `rm -rf .next/types` + ребилд.
+- Прод: `/compare` → 404, главная 200, ссылок на /compare 0. Только фронт-ребилд.

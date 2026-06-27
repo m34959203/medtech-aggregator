@@ -4,8 +4,6 @@ import type {
   BatchResult,
   ChatMessage,
   ChatResponse,
-  ClinicComparison,
-  ClinicCompareRequest,
   ClinicOut,
   ClinicProfile,
   IngestionRun,
@@ -143,19 +141,6 @@ export function subscribePrice(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
-  });
-}
-
-// §3.4: сравнительная таблица клиник по выбранным услугам.
-export function compareClinics(
-  req: ClinicCompareRequest,
-  signal?: AbortSignal,
-): Promise<ClinicComparison> {
-  return apiFetch<ClinicComparison>("/api/compare-clinics", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-    signal,
   });
 }
 

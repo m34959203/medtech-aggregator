@@ -66,12 +66,6 @@ function SiteHeader() {
         <Logo />
         <nav className="flex items-center gap-4 text-sm">
           <Link
-            href="/compare"
-            className="font-medium text-ink-600 transition hover:text-brand-700"
-          >
-            Сравнение
-          </Link>
-          <Link
             href="/recipe"
             className="font-medium text-ink-600 transition hover:text-brand-700"
           >
