@@ -22,7 +22,11 @@ from . import models  # noqa: F401  — регистрируем таблицы
 # SQLite/PG без даунтайма. Существующий путь MedPrice (одна цена) не затрагивается.
 _ADDITIVE_COLUMNS = {
     "service_catalog": [("tarificator_code", "VARCHAR(32)"), ("specialty", "TEXT")],
-    "ingestion_runs": [("file_name", "TEXT"), ("raw_content", "TEXT")],
+    "ingestion_runs": [
+        ("file_name", "TEXT"), ("raw_content", "TEXT"),
+        # §3.2 PriceDocument / §2.1 сохранение оригиналов
+        ("clinic_id", "UUID"), ("effective_date", "DATE"), ("file_path", "TEXT"),
+    ],
     "clinics": [
         ("working_hours", "TEXT"),
         ("website", "TEXT"),

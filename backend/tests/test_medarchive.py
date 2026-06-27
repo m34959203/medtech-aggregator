@@ -1,6 +1,7 @@
 """Тесты MedArchive: извлечение тарифов резидент/нерезидент + код тарификатора,
 code-first нормализация и API-контракт партнёров."""
 import io
+import os
 
 import openpyxl
 import pytest
@@ -119,3 +120,50 @@ def test_partners_api_contract(db):
 
     r = client.get("/api/archive/quality")
     assert r.json()["positions"] == 1
+
+
+# ── §2.1/§5: приём архива через HTTP + сохранение оригиналов + повторная обработка ──
+def test_archive_endpoint_saves_original_and_dual_tariff(db, tmp_path, monkeypatch):
+    monkeypatch.setattr("app.config.settings.archive_storage_dir", str(tmp_path), raising=False)
+    clinic = db.query(Clinic).first()
+    client = TestClient(app)
+
+    r = client.post(
+        "/api/ingest/archive",
+        data={"clinic_id": str(clinic.id)},
+        files={"files": ("price.xlsx", _make_xlsx(),
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["truncated"] is False
+    f0 = body["files"][0]
+    assert f0["status"] == "ok" and f0["stored"] is True
+    assert f0["parse_status"] in ("normalized", "needs_review")
+    run_id = f0["run_id"]
+
+    # резидент/нерезидент записаны (§4.4 / §3.3 PriceItem)
+    from app.models import IngestionRun, Price
+    p = db.query(Price).filter(Price.tarificator_code == "B02.110.002").first()
+    assert p is not None and float(p.price_resident) == 880 and float(p.price_nonresident) == 1410
+
+    # §2.1/§5: оригинал реально сохранён на диск и привязан к прогону
+    run = db.get(IngestionRun, run_id)
+    assert run.file_path and os.path.exists(run.file_path)
+    assert run.clinic_id == clinic.id and run.effective_date is not None
+
+    # §4.1: повторная обработка из сохранённого оригинала
+    rr = client.post(f"/api/ingest/archive/{run_id}/reprocess")
+    assert rr.status_code == 200, rr.text
+    assert rr.json()["items"] >= 1
+
+
+def test_archive_reprocess_404_when_no_original(db):
+    """Прогон без сохранённого оригинала (старый MedPrice-путь) → 404, не 500."""
+    clinic = db.query(Clinic).first()
+    items = [ae.ArchiveItem(name="кровь с ЭДТА", code="B02.110.002",
+                            price_resident=880, price_nonresident=1410, price_original=880)]
+    st = ingest_archive(db, clinic_id=clinic.id, file_name="k1.pdf", fmt="pdf", items=items)
+    client = TestClient(app)
+    rr = client.post(f"/api/ingest/archive/{st['run_id']}/reprocess")
+    assert rr.status_code == 404

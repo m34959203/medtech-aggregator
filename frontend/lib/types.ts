@@ -222,11 +222,21 @@ export interface BatchFileResult {
   needs_review?: number;
   run_id?: number;
   error?: string;
+  // MedArchive (Кейс 2): доп-поля архивного пайплайна
+  services?: number;
+  skipped?: number;
+  anomalies?: number;
+  parse_status?: string;
+  stored?: boolean; // оригинал сохранён на диск (§2.1/§5)
 }
 
 export interface BatchResult {
   files: BatchFileResult[];
-  totals: { files: number; ok: number; items: number; matched: number; needs_review: number };
+  totals: {
+    files: number; ok: number; items: number; matched: number; needs_review: number;
+    anomalies?: number; stored?: number;
+  };
+  truncated?: boolean; // приём обрезан по лимиту файлов
 }
 
 // --- Спринт-2: ревью (human-in-the-loop) ---

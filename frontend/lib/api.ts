@@ -203,6 +203,15 @@ export function uploadBatch(files: File[], clinicId?: string): Promise<BatchResu
   return apiFetch<BatchResult>("/api/ingest/upload-batch", { method: "POST", body: form });
 }
 
+// Кейс 2 (MedArchive): архивный приём — резидент/нерезидент, §4.4-валидации,
+// сохранение оригиналов. Отдельный эндпоинт, не затрагивает MedPrice-путь.
+export function uploadArchive(files: File[], clinicId?: string): Promise<BatchResult> {
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  if (clinicId) form.append("clinic_id", clinicId);
+  return apiFetch<BatchResult>("/api/ingest/archive", { method: "POST", body: form });
+}
+
 // §3.1: ручной автосбор по URL клиники (web_scrape, с учётом robots.txt).
 export type ScrapeResult = {
   run_id: number;

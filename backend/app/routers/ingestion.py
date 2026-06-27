@@ -23,6 +23,13 @@ from ..ingestion import api_connector, web_scraper
 from ..ingestion.file_parser import detect_and_parse
 from ..ingestion.normalizer import Normalizer
 from ..ingestion.service import ingest_items
+# MedArchive (Кейс 2): архивный пайплайн — резидент/нерезидент, §4.4-валидации,
+# сохранение оригиналов. Отдельно от MedPrice-пути (ingest_items), чтобы Кейс 1
+# не затрагивался.
+from ..ingestion.archive_extractor import detect_and_parse as ae_detect_and_parse
+from ..ingestion.archive_service import ingest_archive
+from ..ingestion.storage import read_original
+from ..archive_ingest import _effective_date, _partner_name
 
 router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
 
@@ -140,6 +147,126 @@ async def upload_batch(
             "matched": tot_matched, "needs_review": tot_review,
         },
     }
+
+
+_ARCHIVE_MAX_FILES = 1000  # верхняя граница на один приём (защита от мусора)
+
+
+def _unpack_entries(files_bytes: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    """Разворачивает .zip в (имя, байты); обычные файлы пропускает как есть."""
+    out: list[tuple[str, bytes]] = []
+    for name, raw in files_bytes:
+        if name.lower().endswith(".zip"):
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(raw))
+            except zipfile.BadZipFile:
+                out.append((name, raw))
+                continue
+            for zi in zf.infolist():
+                base = zi.filename.split("/")[-1]
+                if zi.is_dir() or not base or base.startswith(".") or "__MACOSX" in zi.filename:
+                    continue
+                out.append((base, zf.read(zi)))
+        else:
+            out.append((name, raw))
+    return out
+
+
+@router.post("/archive", dependencies=[Depends(require_admin)])
+async def ingest_archive_upload(
+    clinic_id: uuid.UUID | None = Form(None),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """Кейс 2 (MedArchive): приём архива прайсов партнёров полным пайплайном.
+
+    Отличие от `/upload-batch` (Кейс 1, single-price): резидент/нерезидент раздельно,
+    §4.4-валидации (нерезидент≥резидент, аномалия >50%), code-first нормализация и
+    **сохранение оригиналов** (§2.1/§5) для повторной обработки. Партнёр берётся из
+    префикса «<uuid>_», общего поля `clinic_id`, либо из имени файла (авто-создание).
+    """
+    raw_files: list[tuple[str, bytes]] = [(up.filename or "file", await up.read()) for up in files]
+    entries = _unpack_entries(raw_files)
+    if not entries:
+        raise HTTPException(422, "Архив пуст — не найдено файлов прайсов.")
+    truncated = len(entries) > _ARCHIVE_MAX_FILES
+    entries = entries[:_ARCHIVE_MAX_FILES]
+
+    nz = Normalizer(db)  # общий нормализатор на весь архив (общий рост индекса)
+    results: list[dict] = []
+    tot_items = tot_matched = tot_review = tot_anom = ok = stored = 0
+    for fname, content in entries:
+        entry: dict = {"file": fname}
+        # партнёр: префикс/форма → иначе из имени файла (§2.1 «имя содержит клинику»)
+        cid = _resolve_clinic_id(db, fname, clinic_id)
+        if cid is None:
+            partner = db.query(Clinic).filter(Clinic.name == _partner_name(fname)).first()
+            if partner is None:
+                partner = Clinic(name=_partner_name(fname), city="", address="")
+                db.add(partner)
+                db.flush()
+            cid = partner.id
+        try:
+            fmt, items = ae_detect_and_parse(fname, content)
+        except Exception as e:  # noqa: BLE001 — отчёт по файлу, не валим архив
+            entry.update(status="error", parse_status="error", error=f"Парсинг не удался ({type(e).__name__}).")
+            results.append(entry)
+            continue
+        if not items:
+            entry.update(status="empty", parse_status="error", clinic_id=str(cid), format=fmt, items=0)
+            results.append(entry)
+            continue
+        st = ingest_archive(
+            db, clinic_id=cid, file_name=fname, fmt=fmt, items=items,
+            valid_from=_effective_date(fname), normalizer=nz, content=content,
+        )
+        entry.update(
+            status="ok", clinic_id=str(cid), format=fmt, run_id=st["run_id"],
+            items=st["items"], services=st["services"], matched=st["matched"],
+            needs_review=st["needs_review"], skipped=st["skipped"],
+            anomalies=st["anomalies"], parse_status=st["parse_status"], stored=st["stored"],
+        )
+        tot_items += st["items"]
+        tot_matched += st["matched"]
+        tot_review += st["needs_review"]
+        tot_anom += st["anomalies"]
+        stored += 1 if st["stored"] else 0
+        ok += 1
+        results.append(entry)
+
+    return {
+        "files": results,
+        "totals": {
+            "files": len(entries), "ok": ok, "items": tot_items,
+            "matched": tot_matched, "needs_review": tot_review,
+            "anomalies": tot_anom, "stored": stored,
+        },
+        "truncated": truncated,
+    }
+
+
+@router.post("/archive/{run_id}/reprocess", dependencies=[Depends(require_admin)])
+def reprocess_archive_document(run_id: int, db: Session = Depends(get_db)):
+    """§2.1/§4.1: повторная обработка документа из сохранённого ОРИГИНАЛА.
+
+    Перечитывает исходный файл (`IngestionRun.file_path`) и прогоняет архивный
+    пайплайн заново (новый прогон, текущий справочник). 404 если оригинал не сохранён.
+    """
+    run = db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(404, "Прогон не найден.")
+    if not run.file_path:
+        raise HTTPException(404, "Оригинал документа не сохранён — повторная обработка недоступна.")
+    try:
+        content = read_original(run.file_path)
+    except OSError:
+        raise HTTPException(410, "Файл оригинала недоступен на диске.")
+    fmt, items = ae_detect_and_parse(run.file_name, content)
+    st = ingest_archive(
+        db, clinic_id=run.clinic_id, file_name=run.file_name, fmt=fmt, items=items,
+        valid_from=run.effective_date, normalizer=Normalizer(db), content=content,
+    )
+    return st
 
 
 @router.get("/stats", dependencies=[Depends(require_admin)])

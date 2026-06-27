@@ -15,6 +15,7 @@ from ..models import IngestionRun, Price
 from .archive_extractor import ArchiveItem
 from .normalizer import Normalizer
 from .service import record_price_history
+from .storage import store_original
 
 
 def _validate(item: ArchiveItem, today: date) -> list[str]:
@@ -41,17 +42,31 @@ def ingest_archive(
     raw_content: str = "",
     valid_from: date | None = None,
     normalizer: Normalizer | None = None,
+    content: bytes | None = None,
 ) -> dict:
-    """Принимает позиции ОДНОГО документа-прайса. → метрики качества по документу."""
+    """Принимает позиции ОДНОГО документа-прайса. → метрики качества по документу.
+
+    Если передан `content` (байты оригинала) — сохраняет исходный файл на диск
+    (§2.1/§5: оригиналы не удаляются) и проставляет `IngestionRun.file_path`.
+    """
     valid_from = valid_from or date.today()
     today = date.today()
     run = IngestionRun(
         channel="push", format=fmt, status="started",
         items_found=len(items), file_name=file_name,
         raw_content=(raw_content or "")[:200_000],
+        # §3.2 PriceDocument: партнёр-источник и дата вступления прайса в силу.
+        clinic_id=clinic_id, effective_date=valid_from,
     )
     db.add(run)
     db.flush()
+    # §2.1/§5: сохраняем ОРИГИНАЛ под run_id для повторной обработки и аудита.
+    if content is not None:
+        try:
+            run.file_path = store_original(run.id, file_name, content)
+        except OSError as e:  # хранилище недоступно — не валим приём, помечаем в логе
+            run.file_path = ""
+            run.message = f"storage_error: {type(e).__name__}"
 
     nz = normalizer or Normalizer(db)
     threshold = settings.match_confidence_threshold
@@ -145,4 +160,5 @@ def ingest_archive(
         "skipped": skipped, "anomalies": anomalies, "warned": warned,
         "auto_rate": auto_rate,
         "with_code": sum(1 for it in items if it.code),
+        "parse_status": run.status, "stored": bool(run.file_path),
     }

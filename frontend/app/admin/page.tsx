@@ -10,6 +10,7 @@ import {
   issuePortalAccess,
   runScheduled,
   scrapeSite,
+  uploadArchive,
   uploadBatch,
 } from "@/lib/api";
 import type { BatchResult, IngestionRun, IngestionStats } from "@/lib/types";
@@ -310,6 +311,7 @@ function ExportCard() {
 function BatchUploadCard({ onDone }: { onDone: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [clinicId, setClinicId] = useState("");
+  const [archiveMode, setArchiveMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -320,7 +322,9 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await uploadBatch(files, clinicId || undefined);
+      const res = archiveMode
+        ? await uploadArchive(files, clinicId || undefined)
+        : await uploadBatch(files, clinicId || undefined);
       setResult(res);
       onDone();
     } catch (e) {
@@ -339,6 +343,12 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
         Загрузите .zip или несколько прайсов (xlsx/csv/pdf/скан/фото — OCR). Клиника берётся из
         префикса имени файла <code className="rounded bg-ink-100 px-1">«&lt;id&gt;_прайс.xlsx»</code>
         или из общего поля ниже.
+        {archiveMode && (
+          <span className="mt-1 block text-brand-700">
+            Режим MedArchive: цены резидент/нерезидент раздельно, валидации (нерезидент≥резидент,
+            аномалия&nbsp;&gt;50%), <b>оригиналы сохраняются</b> для повторной обработки.
+          </span>
+        )}
       </p>
 
       <div className="mt-4 space-y-3">
@@ -361,6 +371,18 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
             placeholder="clinic_id (uuid) по умолчанию (опц.)"
             className="field max-w-[16rem] py-2 text-sm"
           />
+          <label className="inline-flex items-center gap-2 text-sm text-ink-600">
+            <input
+              type="checkbox"
+              checked={archiveMode}
+              onChange={(e) => {
+                setArchiveMode(e.target.checked);
+                setResult(null);
+              }}
+              className="h-4 w-4 rounded border-ink-300 text-brand-600"
+            />
+            Режим MedArchive (Кейс 2)
+          </label>
           <button
             type="button"
             onClick={submit}
@@ -378,15 +400,32 @@ function BatchUploadCard({ onDone }: { onDone: () => void }) {
           <p className="mb-2 font-medium text-ink-700">
             Файлов: {result.totals.files} · успешно: {result.totals.ok} · позиций:{" "}
             {result.totals.items} · на проверку: {result.totals.needs_review}
+            {typeof result.totals.anomalies === "number" && result.totals.anomalies > 0 && (
+              <> · аномалий цены: {result.totals.anomalies}</>
+            )}
+            {typeof result.totals.stored === "number" && (
+              <> · оригиналов сохранено: {result.totals.stored}</>
+            )}
           </p>
+          {result.truncated && (
+            <p className="mb-2 text-xs text-amber-600">
+              Приём обрезан по лимиту файлов — загрузите остаток отдельным архивом.
+            </p>
+          )}
           <ul className="space-y-1">
             {result.files.map((f, i) => (
               <li key={i} className="flex items-center justify-between gap-2">
-                <span className="truncate font-mono text-xs text-ink-600">{f.file}</span>
+                <span className="truncate font-mono text-xs text-ink-600">
+                  {f.stored && <span title="оригинал сохранён">💾 </span>}
+                  {f.file}
+                </span>
                 <span className="shrink-0 text-xs">
                   {f.status === "ok" ? (
                     <span className="text-brand-700">
                       {f.items} позиций{f.needs_review ? `, ${f.needs_review} на проверку` : ""}
+                      {typeof f.anomalies === "number" && f.anomalies > 0
+                        ? `, ${f.anomalies} аном.`
+                        : ""}
                     </span>
                   ) : f.status === "empty" ? (
                     <span className="text-amber-600">пусто</span>

@@ -201,6 +201,7 @@ def main(argv=None) -> int:
             st = ingest_archive(
                 db, clinic_id=partner.id, file_name=fname, fmt=fmt,
                 items=items, valid_from=_effective_date(fname), normalizer=nz,
+                content=content,  # §2.1/§5: сохраняем оригинал документа
             )
             stats.append(st)
             print(f"[doc] {fname:34} {fmt:5} pos={st['items']:5} svc={st['services']:4} "

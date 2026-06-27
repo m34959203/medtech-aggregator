@@ -36,3 +36,7 @@ backend/uploads/
 
 # Локальные бэкапы прод-БД (pg_dump/sqlite) — НЕ коммитить
 backups/
+
+# рантайм-лог Gemini-предложений (не артефакт репо)
+backend/_gemini_windows.jsonl
+backend/_syn_from_name.py

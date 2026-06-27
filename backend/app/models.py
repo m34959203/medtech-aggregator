@@ -91,9 +91,17 @@ class IngestionRun(Base):
     items_found: Mapped[int] = mapped_column(Integer, default=0)
     message: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    # MedArchive: исходный документ-прайс (аудит / повторная обработка).
+    # MedArchive §3.2 «PriceDocument»: исходный документ-прайс (аудит / повторная
+    # обработка). IngestionRun несёт поля сущности PriceDocument из ТЗ:
+    #   doc_id=id · partner_id=clinic_id · file_name · file_format=format ·
+    #   effective_date · parsed_at=created_at · parse_status=status · parse_log=message ·
+    #   raw_content · file_path (путь к сохранённому оригиналу, §2.1/§5).
     file_name: Mapped[str] = mapped_column(Text, default="")
     raw_content: Mapped[str] = mapped_column(Text, default="")  # сырой извлечённый текст
+    clinic_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("clinics.id"), nullable=True)  # партнёр-источник документа
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # дата вступления прайса в силу
+    file_path: Mapped[str] = mapped_column(Text, default="")  # путь к сохранённому оригиналу
 
     source: Mapped["Source"] = relationship(back_populates="runs")
     prices: Mapped[list["Price"]] = relationship(back_populates="run")

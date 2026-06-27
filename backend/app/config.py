@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     price_freshness_days: int = 30
     # §4: сырые данные (raw_content) хранятся не менее N дней для аудита.
     raw_retention_days: int = 90
+    # §2.1/§5 MedArchive: каталог, куда складываются ОРИГИНАЛЫ загруженных файлов
+    # (для повторной обработки и аудита — исходники не удаляются). По умолчанию —
+    # постоянный том medtech_data (/data), переживает пересборку образа.
+    archive_storage_dir: str = "/data/uploads"
 
     # Семантическая нормализация (эмбеддинги + pgvector). Понимает смысл, а не буквы:
     # «кровь на сахар» → «Глюкоза». На Postgres — pgvector; иначе in-process. Если
