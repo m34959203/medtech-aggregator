@@ -190,3 +190,22 @@ class PriceHistory(Base):
     service_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("service_catalog.id"), index=True)
     price: Mapped[float] = mapped_column(Numeric(12, 2))
     recorded_at: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+
+
+class PriceSubscription(Base):
+    """§3.4 (опц.): подписка пользователя на снижение цены по услуге (и опц. клинике).
+
+    Планировщик сверяет текущий минимум с `last_price`; при снижении шлёт уведомление
+    в WhatsApp. `clinic_id`=NULL → следим за минимумом по услуге (опц. в рамках города)."""
+
+    __tablename__ = "price_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    service_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("service_catalog.id"), index=True)
+    clinic_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("clinics.id"), nullable=True)
+    city: Mapped[str] = mapped_column(Text, default="")        # ограничить городом (если clinic_id NULL)
+    phone: Mapped[str] = mapped_column(String(32))             # WhatsApp подписчика
+    last_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)  # последний замеченный минимум
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

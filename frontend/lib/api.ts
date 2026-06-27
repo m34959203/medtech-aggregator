@@ -135,6 +135,17 @@ export function getClinics(signal?: AbortSignal): Promise<ClinicOut[]> {
   return apiFetch<ClinicOut[]>("/api/clinics", { signal });
 }
 
+// §3.4: подписка на снижение цены (уведомление в WhatsApp).
+export function subscribePrice(
+  req: import("./types").SubscribeRequest,
+): Promise<import("./types").SubscribeResponse> {
+  return apiFetch<import("./types").SubscribeResponse>("/api/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
 // §3.4: сравнительная таблица клиник по выбранным услугам.
 export function compareClinics(
   req: ClinicCompareRequest,

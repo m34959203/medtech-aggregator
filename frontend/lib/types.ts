@@ -122,6 +122,20 @@ export interface ServiceOntology {
   osms: boolean;
 }
 
+// §3.4: подписка на снижение цены (уведомление в WhatsApp)
+export interface SubscribeRequest {
+  service_id: string;
+  clinic_id?: string | null;
+  city?: string | null;
+  phone: string;
+}
+export interface SubscribeResponse {
+  ok: boolean;
+  id: number;
+  already?: boolean;
+  tracking_price?: number | null;
+}
+
 export type CategoryEnum = "лаборатория" | "приём врача" | "диагностика" | "процедура";
 
 export interface ServiceComparison {

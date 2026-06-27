@@ -104,8 +104,19 @@ def mark_stale_inactive() -> int:
         db.close()
 
 
+def check_price_subscriptions() -> dict:
+    """§3.4: уведомить подписчиков о снижении цен (после сбора свежих цен)."""
+    from .routers.subscriptions import check_subscriptions
+    db = SessionLocal()
+    try:
+        return check_subscriptions(db)
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     init_db()
     for line in run_all_sources():
         print(line)
     print({"raw_purged": purge_expired_raw(), "stale_deactivated": mark_stale_inactive()})
+    print({"subscriptions": check_price_subscriptions()})

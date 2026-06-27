@@ -2,8 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { compare, createLead, reportPrice } from "@/lib/api";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ApiError, compare, createLead, reportPrice, subscribePrice } from "@/lib/api";
 import { formatDate, formatPrice } from "@/lib/format";
 import type { PriceTrend, ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
 import CategoryBadge from "./CategoryBadge";
@@ -173,7 +173,14 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         </p>
       </header>
 
-      <PriceTrendBlock trend={data.price_trend} />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:justify-between">
+        <PriceTrendBlock trend={data.price_trend} />
+        <SubscribePriceBlock
+          serviceId={data.service_id}
+          serviceName={data.canonical_name}
+          city={city}
+        />
+      </div>
       <VariantsBar variants={data.variants} city={city} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -370,44 +377,219 @@ function ReportPriceButton({
   );
 }
 
+// «2026-01-15» → «15.01» (день.месяц)
+function formatDayMonth(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}.${mm}`;
+}
+
 function PriceTrendBlock({ trend }: { trend?: PriceTrend | null }) {
+  // Уникальный id градиента — на случай нескольких графиков на странице.
+  const gradId = useId();
   if (!trend || trend.points.length < 2) return null;
+
   const vals = trend.points.map((p) => p.median);
   const min = Math.min(...vals);
   const max = Math.max(...vals);
-  const w = 120;
-  const h = 32;
-  const pad = 2;
+
+  // viewBox в «логических» единицах, реальный размер тянется CSS-ом.
+  const w = 480;
+  const h = 96;
+  const padX = 8;
+  const padTop = 10;
+  const padBottom = 10;
   const span = max - min || 1;
-  const pts = trend.points
-    .map((p, i) => {
-      const x = pad + (i * (w - 2 * pad)) / (trend.points.length - 1);
-      const y = h - pad - ((p.median - min) / span) * (h - 2 * pad);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
+  const n = trend.points.length;
+
+  const xy = trend.points.map((p, i) => {
+    const x = padX + (i * (w - 2 * padX)) / (n - 1);
+    const y = padTop + (1 - (p.median - min) / span) * (h - padTop - padBottom);
+    return { x, y, ...p };
+  });
+
+  const line = xy.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
+  // Замкнутая область под линией для заливки.
+  const area =
+    `${padX},${h - padBottom} ` +
+    line +
+    ` ${(w - padX).toFixed(1)},${h - padBottom}`;
+
   const flat = trend.direction === "flat";
   const up = trend.direction === "up";
   const color = flat ? "#64748b" : up ? "#dc2626" : "#059669";
   const label = flat
     ? "цена стабильна"
     : `цена ${up ? "выросла" : "снизилась"} на ${Math.abs(trend.change_pct)}%`;
+
+  // Промежуточные подписи дат для длинного ряда (берём 1-2 точки в середине).
+  const tickIdx = new Set<number>([0, n - 1]);
+  if (n >= 5) tickIdx.add(Math.floor((n - 1) / 2));
+  if (n >= 8) {
+    tickIdx.add(Math.floor((n - 1) / 3));
+    tickIdx.add(Math.floor((2 * (n - 1)) / 3));
+  }
+
   return (
-    <div className="inline-flex items-center gap-3 rounded-xl border border-ink-100 bg-white px-3 py-2">
-      <svg viewBox={`0 0 ${w} ${h}`} className="h-8 w-[120px]" preserveAspectRatio="none" aria-hidden>
-        <polyline
-          points={pts}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      </svg>
-      <span className="text-xs font-medium" style={{ color }}>
-        {label} <span className="text-ink-400">за период</span>
-      </span>
+    <div className="card w-full p-4 lg:max-w-[520px]">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold text-ink-900">Динамика цены</h2>
+        <span className="text-xs font-medium" style={{ color }}>
+          {label} <span className="text-ink-400">за период</span>
+        </span>
+      </div>
+
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          className="h-[88px] w-full"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`График динамики цены: ${label}`}
+        >
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.18" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <polygon points={area} fill={`url(#${gradId})`} stroke="none" />
+          <polyline
+            points={line}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+          {xy.map((q, i) => (
+            <circle
+              key={i}
+              cx={q.x}
+              cy={q.y}
+              r="2.6"
+              fill="#fff"
+              stroke={color}
+              strokeWidth="1.6"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>{`${formatDayMonth(q.date)}: ${formatPrice(q.median)}`}</title>
+            </circle>
+          ))}
+        </svg>
+      </div>
+
+      {/* Ось X: даты под крайними (и при длинном ряде — промежуточными) точками */}
+      <div className="mt-1.5 flex justify-between text-[11px] text-ink-400">
+        {xy.map((q, i) =>
+          tickIdx.has(i) ? (
+            <span key={i}>{formatDayMonth(q.date)}</span>
+          ) : null,
+        )}
+      </div>
+
+      {/* Ось Y: подсказка по диапазону медианной цены */}
+      <p className="mt-2 border-t border-ink-100 pt-2 text-[11px] text-ink-500">
+        min <span className="font-semibold text-ink-700">{formatPrice(min)}</span>
+        <span className="px-1 text-ink-300">·</span>
+        max <span className="font-semibold text-ink-700">{formatPrice(max)}</span>
+      </p>
     </div>
+  );
+}
+
+function SubscribePriceBlock({
+  serviceId,
+  serviceName,
+  city,
+}: {
+  serviceId: string;
+  serviceName: string;
+  city: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "done">("idle");
+  const [result, setResult] = useState<{ already?: boolean; tracking_price?: number | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const digits = phone.replace(/\D/g, "").length;
+  const canSubmit = digits >= 10 && state !== "sending";
+
+  if (state === "done") {
+    const trackingPrice = result?.tracking_price ?? null;
+    return (
+      <div className="flex items-center rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 lg:max-w-xs">
+        <p className="text-sm font-medium text-emerald-700">
+          {result?.already
+            ? "✓ Вы уже подписаны."
+            : `✓ Подписка оформлена. Отслеживаем минимум${trackingPrice ? ` ${formatPrice(trackingPrice)}` : ""}.`}
+        </p>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex h-fit items-center justify-center gap-1.5 self-start rounded-full border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-700 transition hover:border-brand-300 hover:bg-brand-100"
+      >
+        🔔 Подписаться на снижение цены
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!canSubmit) return;
+        setState("sending");
+        setError(null);
+        try {
+          const res = await subscribePrice({
+            service_id: serviceId,
+            city: city || null,
+            phone,
+          });
+          setResult({ already: res.already, tracking_price: res.tracking_price });
+          setState("done");
+        } catch (err) {
+          setState("idle");
+          setError(
+            err instanceof ApiError ? err.message : "Не удалось оформить подписку. Попробуйте позже.",
+          );
+        }
+      }}
+      className="flex w-full flex-col gap-2 rounded-xl border border-ink-100 bg-white p-4 lg:max-w-xs"
+    >
+      <p className="text-sm font-semibold text-ink-900">🔔 Снижение цены</p>
+      <p className="text-xs leading-relaxed text-ink-500">
+        Сообщим в WhatsApp, когда цена на «{serviceName}» снизится.
+      </p>
+      <input
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        placeholder="+7 707 123 45 67"
+        inputMode="tel"
+        autoFocus
+        className="field py-2 text-sm"
+        aria-label="Номер телефона для уведомления"
+      />
+      <button
+        type="submit"
+        disabled={!canSubmit}
+        className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+      >
+        {state === "sending" ? "Оформляю…" : "Подписаться"}
+      </button>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </form>
   );
 }
 

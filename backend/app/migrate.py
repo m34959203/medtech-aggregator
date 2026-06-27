@@ -102,6 +102,9 @@ def run() -> None:
     if "alembic_version" in tables or "clinics" not in tables:
         # уже под Alembic, либо совсем свежая БД — миграции делают всё сами
         command.upgrade(cfg, "head")
+        # Идемпотентно создаём НЕДОСТАЮЩИЕ таблицы новых моделей (напр. price_subscriptions),
+        # которых ещё нет в alembic-истории. Существующие таблицы create_all не трогает.
+        Base.metadata.create_all(engine)
         _ensure_additive_columns()
         _ensure_pgvector_embeddings()
         _resync_sequences()
