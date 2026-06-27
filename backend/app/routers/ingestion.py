@@ -427,3 +427,58 @@ def run_scheduled():
 @router.get("/runs", response_model=list[IngestionRunOut], dependencies=[Depends(require_admin)])
 def list_runs(limit: int = 50, db: Session = Depends(get_db)):
     return db.query(IngestionRun).order_by(IngestionRun.created_at.desc()).limit(limit).all()
+
+
+@router.get("/runs/{run_id}", dependencies=[Depends(require_admin)])
+def run_detail(run_id: int, db: Session = Depends(get_db)):
+    """Деталь прогона: метаданные + все позиции (raw → нормализованное, статус,
+    цена резидент/нерезидент). Для страницы /admin/runs/{id} и панели завершения."""
+    run = db.get(IngestionRun, run_id)
+    if not run:
+        raise HTTPException(404, "Прогон не найден")
+    threshold = settings.match_confidence_threshold
+    rows = (
+        db.query(Price, ServiceCatalog)
+        .outerjoin(ServiceCatalog, Price.service_id == ServiceCatalog.id)
+        .filter(Price.run_id == run_id)
+        .order_by(Price.match_confidence)
+        .all()
+    )
+    clinic = None
+    if rows:
+        clinic = db.get(Clinic, rows[0][0].clinic_id)
+    positions = [
+        {
+            "price_id": p.id,
+            "raw_name": p.raw_name,
+            "canonical_name": s.canonical_name if s else None,
+            "service_id": str(s.id) if s else None,
+            "match_confidence": round(p.match_confidence, 2),
+            "status": "needs_review" if p.match_confidence < threshold else "matched",
+            "price": float(p.price) if p.price is not None else None,
+            "price_resident": float(p.price_resident) if p.price_resident is not None else None,
+            "price_nonresident": float(p.price_nonresident) if p.price_nonresident is not None else None,
+            "currency": p.currency,
+        }
+        for p, s in rows
+    ]
+    matched = sum(1 for x in positions if x["status"] == "matched")
+    return {
+        "run_id": run.id,
+        "channel": run.channel,
+        "format": run.format,
+        "status": run.status,
+        "message": run.message,
+        "items_found": run.items_found,
+        "created_at": run.created_at.isoformat(),
+        "clinic_id": str(clinic.id) if clinic else None,
+        "clinic_name": clinic.name if clinic else None,
+        "has_original": bool(getattr(run, "file_path", None)),
+        "counts": {
+            "positions": len(positions),
+            "matched": matched,
+            "needs_review": len(positions) - matched,
+            "threshold": threshold,
+        },
+        "positions": positions,
+    }

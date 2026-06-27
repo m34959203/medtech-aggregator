@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
@@ -253,23 +254,36 @@ function StatsGrid({ stats, loading }: { stats: IngestionStats | null; loading: 
       label: "На ручной проверке",
       value: stats?.needs_review,
       warn: (stats?.needs_review ?? 0) > 0,
+      href: "/admin/review",
     },
   ];
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      {cards.map((c) => (
-        <div key={c.label} className="card p-4">
-          <p className="text-xs font-medium text-ink-500">{c.label}</p>
-          <p
-            className={`mt-1 text-2xl font-bold tracking-tight ${
-              c.warn ? "text-amber-600" : "text-ink-900"
-            }`}
-          >
-            {c.value != null ? c.value.toLocaleString("ru-RU") : "—"}
-          </p>
-          {c.hint && <p className="text-xs text-ink-400">{c.hint}</p>}
-        </div>
-      ))}
+      {cards.map((c) => {
+        const inner = (
+          <>
+            <p className="text-xs font-medium text-ink-500">{c.label}</p>
+            <p
+              className={`mt-1 text-2xl font-bold tracking-tight ${
+                c.warn ? "text-amber-600" : "text-ink-900"
+              }`}
+            >
+              {c.value != null ? c.value.toLocaleString("ru-RU") : "—"}
+            </p>
+            {c.hint && <p className="text-xs text-ink-400">{c.hint}</p>}
+            {c.href && <p className="text-xs font-medium text-brand-600">Открыть очередь →</p>}
+          </>
+        );
+        return c.href ? (
+          <Link key={c.label} href={c.href} className="card p-4 transition hover:border-brand-300">
+            {inner}
+          </Link>
+        ) : (
+          <div key={c.label} className="card p-4">
+            {inner}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -620,54 +634,119 @@ function BatchUploadCard({ onDone, partners }: { onDone: () => void; partners: P
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
 
-      {result && (
-        <div className="mt-4 rounded-xl bg-ink-50 p-3 text-sm ring-1 ring-inset ring-ink-100">
-          <p className="mb-2 font-medium text-ink-700">
-            Файлов: {result.totals.files} · успешно: {result.totals.ok} · позиций:{" "}
-            {result.totals.items} · на проверку: {result.totals.needs_review}
-            {typeof result.totals.anomalies === "number" && result.totals.anomalies > 0 && (
-              <> · аномалий цены: {result.totals.anomalies}</>
-            )}
-            {typeof result.totals.stored === "number" && (
-              <> · оригиналов сохранено: {result.totals.stored}</>
-            )}
-          </p>
-          {result.truncated && (
-            <p className="mb-2 text-xs text-amber-600">
-              Приём обрезан по лимиту файлов — загрузите остаток отдельным архивом.
-            </p>
-          )}
-          <ul className="space-y-1">
-            {result.files.map((f, i) => (
-              <li key={i} className="flex items-center justify-between gap-2">
-                <span className="truncate font-mono text-xs text-ink-600">
-                  {f.stored && <span title="оригинал сохранён">💾 </span>}
-                  {f.file}
-                </span>
-                <span className="shrink-0 text-xs">
-                  {f.status === "ok" ? (
-                    <span className="text-brand-700">
-                      {f.items} позиций{f.needs_review ? `, ${f.needs_review} на проверку` : ""}
-                      {typeof f.anomalies === "number" && f.anomalies > 0
-                        ? `, ${f.anomalies} аном.`
-                        : ""}
-                    </span>
-                  ) : f.status === "empty" ? (
-                    <span className="text-amber-600">пусто</span>
-                  ) : (
-                    <span className="text-red-600">{f.error}</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {result && <CompletionPanel result={result} />}
+    </div>
+  );
+}
+
+// Панель завершения приёма: статус + судьба позиций + переходы (ревью/прогон).
+function CompletionPanel({ result }: { result: BatchResult }) {
+  const t = result.totals;
+  const auto = Math.max(0, t.items - t.needs_review);
+  const okFiles = result.files.filter((f) => f.status === "ok");
+  return (
+    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+      <p className="flex items-center gap-2 font-semibold text-emerald-800">
+        <span>✅</span> Обработка завершена · файлов: {t.ok}/{t.files}
+      </p>
+
+      {/* Судьба позиций — отвечает на «куда делись» */}
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Fate label="Всего позиций" value={t.items} />
+        <Fate label="В каталоге · видны" value={auto} tone="ok" hint="авто-сопоставлено" />
+        <Fate label="На проверке · скрыты" value={t.needs_review} tone="warn" hint="до подтверждения" />
+        {typeof t.anomalies === "number" && (
+          <Fate label="Аномалии цены" value={t.anomalies} tone={t.anomalies > 0 ? "warn" : undefined} />
+        )}
+      </div>
+      {typeof t.stored === "number" && t.stored > 0 && (
+        <p className="mt-2 text-xs text-emerald-700">💾 оригиналов сохранено: {t.stored} (доступна переобработка)</p>
       )}
+      {result.truncated && (
+        <p className="mt-2 text-xs text-amber-600">
+          Приём обрезан по лимиту файлов — загрузите остаток отдельным архивом.
+        </p>
+      )}
+
+      {/* Конечные действия по каждому прогону */}
+      <div className="mt-3 space-y-2">
+        {okFiles.map((f, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-2 rounded-lg bg-white p-3 ring-1 ring-inset ring-emerald-100 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-ink-800">
+                {f.stored && <span title="оригинал сохранён">💾 </span>}
+                {f.file}
+                {f.run_id != null && <span className="text-ink-400"> · прогон #{f.run_id}</span>}
+              </p>
+              <p className="text-xs text-ink-500">
+                {f.items ?? 0} позиций
+                {f.needs_review ? ` · ${f.needs_review} на проверку` : ""}
+                {typeof f.anomalies === "number" && f.anomalies > 0 ? ` · ${f.anomalies} аном.` : ""}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {f.run_id != null && (f.needs_review ?? 0) > 0 && (
+                <Link
+                  href={`/admin/review?run=${f.run_id}`}
+                  className="rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-amber-600"
+                >
+                  Проверить {f.needs_review} →
+                </Link>
+              )}
+              {f.run_id != null && (
+                <Link
+                  href={`/admin/runs/${f.run_id}`}
+                  className="rounded-full border border-ink-200 px-4 py-2 text-xs font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700"
+                >
+                  Открыть прогон
+                </Link>
+              )}
+            </div>
+          </div>
+        ))}
+        {result.files
+          .filter((f) => f.status !== "ok")
+          .map((f, i) => (
+            <p key={`e${i}`} className="text-xs">
+              <span className="font-mono text-ink-600">{f.file}</span> —{" "}
+              {f.status === "empty" ? (
+                <span className="text-amber-600">пусто</span>
+              ) : (
+                <span className="text-red-600">{f.error}</span>
+              )}
+            </p>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function Fate({
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: number;
+  tone?: "ok" | "warn";
+  hint?: string;
+}) {
+  const color = tone === "ok" ? "text-emerald-700" : tone === "warn" ? "text-amber-600" : "text-ink-900";
+  return (
+    <div className="rounded-lg bg-white p-2.5 ring-1 ring-inset ring-emerald-100">
+      <p className={`text-xl font-bold tracking-tight ${color}`}>{value.toLocaleString("ru-RU")}</p>
+      <p className="text-[11px] font-medium leading-tight text-ink-500">{label}</p>
+      {hint && <p className="text-[10px] text-ink-400">{hint}</p>}
     </div>
   );
 }
 
 function RunsTable({ runs, loading }: { runs: IngestionRun[]; loading: boolean }) {
+  const router = useRouter();
   return (
     <div className="mt-8">
       <h2 className="mb-3 text-base font-semibold text-ink-900">
@@ -704,8 +783,13 @@ function RunsTable({ runs, loading }: { runs: IngestionRun[]; loading: boolean }
                 </tr>
               ) : (
                 runs.map((r) => (
-                  <tr key={r.id} className="hover:bg-ink-50/50">
-                    <td className="px-4 py-2.5 text-ink-400">{r.id}</td>
+                  <tr
+                    key={r.id}
+                    onClick={() => router.push(`/admin/runs/${r.id}`)}
+                    className="cursor-pointer hover:bg-ink-50/50"
+                    title="Открыть прогон"
+                  >
+                    <td className="px-4 py-2.5 font-medium text-brand-700">#{r.id}</td>
                     <td className="px-4 py-2.5">
                       <span className="rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-600">
                         {r.channel === "push" ? "загрузка" : "автосбор"}

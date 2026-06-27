@@ -246,8 +246,8 @@ export interface ReviewItem {
   clinic_id: string; // uuid клиники (§2.2)
   clinic_name: string;
   city: string;
-  service_id: string; // uuid услуги (§2.2)
-  canonical_name: string;
+  service_id: string | null; // uuid услуги (§2.2); null — нераспознано
+  canonical_name: string | null; // null — нераспознано (нужно назначить)
   raw_name: string;
   price: number;
   currency: string;
@@ -265,8 +265,39 @@ export interface ReviewReport {
 
 export interface ReviewQueue {
   threshold: number;
+  total?: number; // всего низко-уверенных (с учётом фильтра run_id)
+  run_id?: number | null;
   low_confidence: ReviewItem[];
   reports: ReviewReport[];
+}
+
+// --- Деталь прогона приёма (/admin/runs/{id}) ---
+export interface RunPosition {
+  price_id: number;
+  raw_name: string;
+  canonical_name: string | null;
+  service_id: string | null;
+  match_confidence: number;
+  status: "matched" | "needs_review";
+  price: number | null;
+  price_resident: number | null;
+  price_nonresident: number | null;
+  currency: string;
+}
+
+export interface RunDetail {
+  run_id: number;
+  channel: string;
+  format: string;
+  status: string;
+  message: string;
+  items_found: number;
+  created_at: string;
+  clinic_id: string | null;
+  clinic_name: string | null;
+  has_original: boolean;
+  counts: { positions: number; matched: number; needs_review: number; threshold: number };
+  positions: RunPosition[];
 }
 
 // --- Спринт-3: портал клиники (self-service) ---

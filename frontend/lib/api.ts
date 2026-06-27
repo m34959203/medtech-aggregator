@@ -236,10 +236,21 @@ export function catalogExportUrl(format: "xlsx" | "csv"): string {
 }
 
 // --- Спринт-2: ревью и лиды ---
-import type { ReviewQueue } from "./types";
+import type { ReviewQueue, RunDetail } from "./types";
 
-export function getReviewQueue(signal?: AbortSignal): Promise<ReviewQueue> {
-  return apiFetch<ReviewQueue>("/api/review/queue", { signal });
+export function getReviewQueue(runId?: number, signal?: AbortSignal): Promise<ReviewQueue> {
+  const qs = runId != null ? `?run_id=${runId}` : "";
+  return apiFetch<ReviewQueue>(`/api/review/queue${qs}`, { signal });
+}
+
+// Деталь прогона приёма: метаданные + позиции (raw → нормализованное).
+export function getRunDetail(runId: number, signal?: AbortSignal): Promise<RunDetail> {
+  return apiFetch<RunDetail>(`/api/ingest/runs/${runId}`, { signal });
+}
+
+// Переобработать архивный прогон из сохранённого оригинала.
+export function reprocessRun(runId: number): Promise<unknown> {
+  return apiFetch(`/api/ingest/archive/${runId}/reprocess`, { method: "POST" });
 }
 
 export function reviewPrice(

@@ -16,17 +16,27 @@ export default function ReviewPage() {
   const [queue, setQueue] = useState<ReviewQueue | null>(null);
   const [services, setServices] = useState<{ id: string; canonical_name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [runId, setRunId] = useState<number | null>(null);
+
+  // Фильтр по прогону из URL (?run=N) — переход из панели завершения приёма.
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("run");
+    setRunId(v ? Number(v) : null);
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
-      const [q, s] = await Promise.all([getReviewQueue(), getServices()]);
+      const [q, s] = await Promise.all([
+        getReviewQueue(runId ?? undefined),
+        getServices(),
+      ]);
       setQueue(q);
       setServices(s);
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? `Ошибка: ${e.message}` : "Бэкенд недоступен.");
     }
-  }, []);
+  }, [runId]);
 
   useEffect(() => {
     refresh();
@@ -47,6 +57,18 @@ export default function ReviewPage() {
           Оператор подтверждает, переназначает или удаляет.
         </p>
       </header>
+
+      {runId != null && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800 ring-1 ring-inset ring-brand-100">
+          <span>
+            Фильтр: прогон <b>#{runId}</b>
+            {queue?.total != null && <> · {queue.total} позиций на проверку</>}
+          </span>
+          <a href="/admin/review" className="font-medium underline-offset-2 hover:underline">
+            показать все
+          </a>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-inset ring-red-100">
@@ -173,7 +195,7 @@ function ReviewRow({
   onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [target, setTarget] = useState<string>(item.service_id);
+  const [target, setTarget] = useState<string>(item.service_id ?? "");
 
   async function act(action: "confirm" | "reassign" | "reject") {
     if (busy) return;
@@ -194,7 +216,12 @@ function ReviewRow({
             {item.clinic_name} <span className="text-ink-400">· {item.city}</span>
           </p>
           <p className="mt-0.5 text-xs text-ink-500">
-            в прайсе: «{item.raw_name}» → <b>{item.canonical_name}</b>
+            в прайсе: «{item.raw_name}» →{" "}
+            {item.canonical_name ? (
+              <b>{item.canonical_name}</b>
+            ) : (
+              <b className="text-amber-600">не распознано — назначьте услугу</b>
+            )}
           </p>
           <p className="mt-1 text-xs">
             <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">
@@ -206,7 +233,8 @@ function ReviewRow({
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => act("confirm")}
-            disabled={busy}
+            disabled={busy || !item.service_id}
+            title={!item.service_id ? "Сначала назначьте услугу (переназначить)" : undefined}
             className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
           >
             Подтвердить
@@ -217,6 +245,7 @@ function ReviewRow({
             className="field max-w-[12rem] py-1.5 text-xs"
             aria-label="Переназначить на услугу"
           >
+            <option value="">— выбрать услугу —</option>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.canonical_name}
@@ -225,7 +254,7 @@ function ReviewRow({
           </select>
           <button
             onClick={() => act("reassign")}
-            disabled={busy || target === item.service_id}
+            disabled={busy || !target || target === (item.service_id ?? "")}
             className="rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 transition hover:border-brand-300 disabled:opacity-40"
           >
             Переназначить

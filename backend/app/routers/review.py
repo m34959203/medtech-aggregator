@@ -24,26 +24,33 @@ router = APIRouter(prefix="/api/review", tags=["review"])
 
 
 @router.get("/queue")
-def review_queue(limit: int = 200, db: Session = Depends(get_db)):
-    """Очередь на ручную проверку: низкая уверенность + новые жалобы."""
+def review_queue(limit: int = 200, run_id: int | None = None, db: Session = Depends(get_db)):
+    """Очередь на ручную проверку: низкая уверенность + новые жалобы.
+
+    `run_id` — отфильтровать позиции конкретного прогона приёма (переход из
+    панели завершения «Проверить N»).
+    """
     threshold = settings.match_confidence_threshold
-    rows = (
+    # OUTER JOIN: нераспознанные позиции (service_id IS NULL) — тоже на проверку.
+    # INNER их прятал → счётчик «на проверке» рос, а очередь была почти пустой.
+    base = (
         db.query(Price, Clinic, ServiceCatalog)
         .join(Clinic, Price.clinic_id == Clinic.id)
-        .join(ServiceCatalog, Price.service_id == ServiceCatalog.id)
+        .outerjoin(ServiceCatalog, Price.service_id == ServiceCatalog.id)
         .filter(Price.match_confidence < threshold)
-        .order_by(Price.match_confidence)
-        .limit(limit)
-        .all()
     )
+    if run_id is not None:
+        base = base.filter(Price.run_id == run_id)
+    total = base.count()
+    rows = base.order_by(Price.match_confidence).limit(limit).all()
     low = [
         {
             "price_id": p.id,
             "clinic_id": c.id,
             "clinic_name": c.name,
             "city": c.city,
-            "service_id": s.id,
-            "canonical_name": s.canonical_name,
+            "service_id": s.id if s else None,
+            "canonical_name": s.canonical_name if s else None,
             "raw_name": p.raw_name,
             "price": float(p.price),
             "currency": p.currency,
@@ -63,7 +70,8 @@ def review_queue(limit: int = 200, db: Session = Depends(get_db)):
         .limit(limit)
         .all()
     ]
-    return {"threshold": threshold, "low_confidence": low, "reports": reports}
+    return {"threshold": threshold, "total": total, "run_id": run_id,
+            "low_confidence": low, "reports": reports}
 
 
 class PriceReviewAction(BaseModel):
