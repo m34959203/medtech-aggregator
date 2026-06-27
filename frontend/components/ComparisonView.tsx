@@ -8,6 +8,7 @@ import { formatDate, formatPrice } from "@/lib/format";
 import type { PriceTrend, ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
 import CategoryBadge from "./CategoryBadge";
 import SourceBadge from "./SourceBadge";
+import ServiceComparePanel from "./ServiceComparePanel";
 import { OfferRowSkeleton } from "./Skeletons";
 
 // Карта только на клиенте — Яндекс.Карты обращаются к window.
@@ -48,6 +49,13 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
   // Клиника, выбранная кликом по карточке (или метке) — для синхронизации с картой.
   // Стартовое значение — из чата (?clinic=): сразу подсветить и подскроллить оффер.
   const [activeClinicId, setActiveClinicId] = useState<string | undefined>(highlightClinicId);
+  // Мультивыбор клиник для панели сравнения (макс. 4).
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= 4 ? prev : [...prev, id],
+    );
+  }, []);
   const abortRef = useRef<AbortController | null>(null);
   const firstRun = useRef(true);
 
@@ -235,6 +243,9 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
                   isActive={activeClinicId === o.clinic_id}
                   onSelect={() => setActiveClinicId(o.clinic_id)}
                   serviceName={data.canonical_name}
+                  selected={selectedIds.includes(o.clinic_id)}
+                  onToggleSelect={() => toggleSelect(o.clinic_id)}
+                  selectionDisabled={selectedIds.length >= 4 && !selectedIds.includes(o.clinic_id)}
                 />
               ))}
             </ul>
@@ -260,6 +271,16 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
           </div>
         </div>
       </div>
+
+      <ServiceComparePanel
+        offers={offers}
+        selectedIds={selectedIds}
+        coords={coords}
+        serviceName={data.canonical_name}
+        onRemove={toggleSelect}
+        onClear={() => setSelectedIds([])}
+        onRequestGeo={requestGeo}
+      />
     </div>
   );
 }
@@ -805,12 +826,18 @@ function OfferRow({
   isActive,
   onSelect,
   serviceName,
+  selected,
+  onToggleSelect,
+  selectionDisabled,
 }: {
   offer: import("@/lib/types").PriceOffer;
   isCheapest: boolean;
   isActive: boolean;
   onSelect: () => void;
   serviceName: string;
+  selected: boolean;
+  onToggleSelect: () => void;
+  selectionDisabled: boolean;
 }) {
   const confidence = Math.round(offer.match_confidence * 100);
   const liRef = useRef<HTMLLIElement>(null);
@@ -847,9 +874,11 @@ function OfferRow({
       } ${stale ? "opacity-60" : ""} ${
         isActive
           ? "ring-2 ring-brand-500"
-          : isCheapest
-            ? "ring-2 ring-brand-300"
-            : ""
+          : selected
+            ? "ring-2 ring-brand-400"
+            : isCheapest
+              ? "ring-2 ring-brand-300"
+              : ""
       }`}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -863,6 +892,19 @@ function OfferRow({
                 🏆 Лучшая цена
               </span>
             )}
+            <label
+              className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-medium text-ink-600"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                type="checkbox"
+                checked={selected}
+                disabled={selectionDisabled}
+                onChange={onToggleSelect}
+                className="h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40"
+              />
+              Сравнить
+            </label>
           </div>
           <p className="text-sm text-ink-500">
             {[offer.district, offer.address].filter(Boolean).join(" · ") ||
