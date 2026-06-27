@@ -41,3 +41,5 @@ backups/
 backend/_gemini_windows.jsonl
 backend/_syn_from_name.py
 backend/_clean_biomat_synonyms.py
+backend/_clean_urine_synonyms.py
+backend/_resync_synonyms.py

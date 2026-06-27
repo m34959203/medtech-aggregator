@@ -114,22 +114,33 @@ _STOOL_RE = re.compile(
     r"\b(кал|кала|кале|калу|копрограмм\w*|копролог\w*|копроцит\w*|фекал\w*|стул)\b",
     re.I)
 _SPUTUM_RE = re.compile(r"\bмокрот\w*", re.I)
+_URINE_RE = re.compile(r"\bмоч[аеиоуы]\w*|\bв\s+моче\b|urin|\bуриа|\bурин", re.I)
 
 
 def _biomat_class(s: str) -> str | None:
-    """Грубый биоматериал строки: 'stool' / 'sputum' / None (кровь/прочее)."""
+    """Грубый биоматериал строки: 'stool' / 'sputum' / 'urine' / None (кровь/прочее)."""
     low = (s or "").lower()
     if _STOOL_RE.search(low):
         return "stool"
     if _SPUTUM_RE.search(low):
         return "sputum"
+    if _URINE_RE.search(low):
+        return "urine"
     return None
 
 
 def _biomat_conflict(raw: str, canonical: str) -> bool:
-    """True, если сырое имя про стул/мокроту, а услуга-кандидат — нет (грубая ошибка)."""
-    rb = _biomat_class(raw)
-    return rb is not None and rb != _biomat_class(canonical)
+    """True при грубом конфликте биоматериала сырого имени и услуги-кандидата:
+      • сырьё про стул/мокроту, а услуга — нет;
+      • ОБЫЧНЫЙ (не-мочевой) аналит, а услуга — мочевой вариант («Глюкоза» → «Глюкоза
+        в моче»). Обратное (мочевое сырьё → кровяная услуга) НЕ конфликт — его ведёт
+        _reroute_analyte/_analyte_variant (создаёт мочевой вариант)."""
+    rb, cb = _biomat_class(raw), _biomat_class(canonical)
+    if rb in ("stool", "sputum") and rb != cb:
+        return True
+    if cb == "urine" and rb != "urine":
+        return True
+    return False
 
 
 class Normalizer:
@@ -181,14 +192,33 @@ class Normalizer:
         matched_key, score, _ = match
         return self.index[matched_key], score / 100.0
 
+    def _fuzzy_guarded(self, raw: str) -> tuple[ServiceCatalog | None, float]:
+        """Лучший fuzzy-кандидат БЕЗ конфликта биоматериала (стул/мокрота/мочевой
+        вариант для обычного аналита). Перешагивает загрязнённый топ-хит и берёт
+        корректный ниже (напр. «Глюкоза» → «Глюкоза (в крови)», не «...в моче»)."""
+        if not self.index:
+            return None, 0.0
+        key = _clean(raw)
+        ranked = process.extract(key, list(self.index.keys()),
+                                 scorer=fuzz.token_set_ratio, limit=8)
+        good = [(self.index[mk], sc) for mk, sc, _ in ranked
+                if not _biomat_conflict(raw, self.index[mk].canonical_name)]
+        if not good:
+            return None, 0.0  # все топ-кандидаты конфликтуют → в очередь, не ложно
+        # tie-break: при почти равном скоре предпочесть совпадение биоматериала
+        # (token_set уравнивает «Глюкоза (кровь)» и «Глюкоза в моче» при сырье «…в моче»).
+        rb = _biomat_class(raw)
+        top = good[0][1]
+        for svc, score in good:
+            if score >= top - 1 and _biomat_class(svc.canonical_name) == rb:
+                return svc, score / 100.0
+        return good[0][0], good[0][1] / 100.0
+
     def match(self, raw: str) -> tuple[ServiceCatalog | None, float]:
         """Read-only подбор услуги под сырое имя (fuzzy → семантика) — для корзины-рецепта."""
-        svc, conf = self._fuzzy(raw)
-        # биоматериал-гард: стул/мокрота не должны матчиться на кровяную услугу
-        # при ЛЮБОЙ уверенности (загрязнённый синоним даёт exact-хит conf=1.0,
-        # токен-оверлап «кровь» — слабый 0.6+). Конфликт ошибочен в обоих случаях.
-        if svc is not None and _biomat_conflict(raw, svc.canonical_name):
-            svc, conf = None, 0.0
+        # биоматериал-гард встроен: стул/мокрота/мочевой вариант для обычного
+        # аналита не матчатся, берётся корректный кандидат ниже по рангу.
+        svc, conf = self._fuzzy_guarded(raw)
         if svc is not None and conf >= self.threshold:
             return svc, conf
         from . import semantic
@@ -277,13 +307,9 @@ class Normalizer:
         return self._find_or_create(derived, "Анализы", raw_name, conf, is_new=False)
 
     def normalize(self, raw_name: str) -> MatchResult:
-        svc, conf = self._fuzzy(raw_name)
-
-        # 0a. биоматериал-гард: стул/мокрота на кровяную услугу — грубая ошибка
-        # при любой уверенности (exact-синоним 1.0 ИЛИ слабый токен-оверлап 0.6+).
-        # Сбрасываем → уйдёт в семантику/LLM/новую услугу/очередь, не привяжется ложно.
-        if svc is not None and _biomat_conflict(raw_name, svc.canonical_name):
-            svc, conf = None, 0.0
+        # биоматериал-гард встроен в _fuzzy_guarded (стул/мокрота/мочевой вариант
+        # для обычного аналита перешагиваются, берётся корректный кандидат).
+        svc, conf = self._fuzzy_guarded(raw_name)
 
         # 0. гард: повторный приём ≠ первичный, моча ≠ кровь — отводим в свою услугу
         if svc and conf >= self.threshold:
@@ -319,9 +345,10 @@ class Normalizer:
             category = decision.get("category") or "Прочее"
             return self._find_or_create(canonical, category, raw_name, llm_conf, is_new=True)
 
-        # 3. без LLM: слабый fuzzy всё равно лучше, чем дубль-справочник
+        # 3. без LLM: слабый fuzzy (0.6..порог) принимаем как привязку, но НЕ
+        # добавляем синонимом — иначе слабый/ошибочный матч становится вечным
+        # exact-хитом 1.0 и растит услуги-магниты (корень хвоста загрязнения).
         if svc and conf >= 0.6:
-            self._add_synonym(svc, raw_name)
             return MatchResult(svc, conf, False)
 
         # 4. новая услуга
