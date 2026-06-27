@@ -455,6 +455,7 @@ def run_detail(run_id: int, db: Session = Depends(get_db)):
             "service_id": str(s.id) if s else None,
             "match_confidence": round(p.match_confidence, 2),
             "status": "needs_review" if p.match_confidence < threshold else "matched",
+            "is_anomaly": bool(p.is_anomaly),
             "price": float(p.price) if p.price is not None else None,
             "price_resident": float(p.price_resident) if p.price_resident is not None else None,
             "price_nonresident": float(p.price_nonresident) if p.price_nonresident is not None else None,
@@ -463,6 +464,7 @@ def run_detail(run_id: int, db: Session = Depends(get_db)):
         for p, s in rows
     ]
     matched = sum(1 for x in positions if x["status"] == "matched")
+    anomalies = sum(1 for x in positions if x["is_anomaly"])
     return {
         "run_id": run.id,
         "channel": run.channel,
@@ -478,7 +480,26 @@ def run_detail(run_id: int, db: Session = Depends(get_db)):
             "positions": len(positions),
             "matched": matched,
             "needs_review": len(positions) - matched,
+            "anomalies": anomalies,
             "threshold": threshold,
         },
         "positions": positions,
     }
+
+
+@router.post("/runs/{run_id}/rollback", dependencies=[Depends(require_admin)])
+def rollback_run(run_id: int, db: Session = Depends(get_db)):
+    """Откат прогона: удалить цены, добавленные этим прогоном (целостность каталога
+    при дублях/ошибочной загрузке). Прогон помечается `rolled_back` для аудита.
+    Деструктивно — фронт спрашивает подтверждение."""
+    run = db.get(IngestionRun, run_id)
+    if not run:
+        raise HTTPException(404, "Прогон не найден")
+    prices = db.query(Price).filter(Price.run_id == run_id).all()
+    deleted = len(prices)
+    for p in prices:
+        db.delete(p)
+    run.status = "rolled_back"
+    run.message = f"[откат] {run.message}"
+    db.commit()
+    return {"run_id": run_id, "deleted_prices": deleted, "status": "rolled_back"}

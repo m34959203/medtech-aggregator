@@ -24,11 +24,13 @@ router = APIRouter(prefix="/api/review", tags=["review"])
 
 
 @router.get("/queue")
-def review_queue(limit: int = 200, run_id: int | None = None, db: Session = Depends(get_db)):
+def review_queue(limit: int = 200, run_id: int | None = None,
+                 filter: str | None = None, db: Session = Depends(get_db)):
     """Очередь на ручную проверку: низкая уверенность + новые жалобы.
 
-    `run_id` — отфильтровать позиции конкретного прогона приёма (переход из
-    панели завершения «Проверить N»).
+    `run_id` — позиции конкретного прогона приёма (переход «Проверить N»).
+    `filter=anomaly` — ценовые аномалии (нерезидент<резидент и т.п.) вместо
+    низко-уверенных.
     """
     threshold = settings.match_confidence_threshold
     # OUTER JOIN: нераспознанные позиции (service_id IS NULL) — тоже на проверку.
@@ -37,8 +39,11 @@ def review_queue(limit: int = 200, run_id: int | None = None, db: Session = Depe
         db.query(Price, Clinic, ServiceCatalog)
         .join(Clinic, Price.clinic_id == Clinic.id)
         .outerjoin(ServiceCatalog, Price.service_id == ServiceCatalog.id)
-        .filter(Price.match_confidence < threshold)
     )
+    if filter == "anomaly":
+        base = base.filter(Price.is_anomaly.is_(True))
+    else:
+        base = base.filter(Price.match_confidence < threshold)
     if run_id is not None:
         base = base.filter(Price.run_id == run_id)
     total = base.count()
@@ -55,6 +60,9 @@ def review_queue(limit: int = 200, run_id: int | None = None, db: Session = Depe
             "price": float(p.price),
             "currency": p.currency,
             "match_confidence": p.match_confidence,
+            "is_anomaly": bool(p.is_anomaly),
+            "price_resident": float(p.price_resident) if p.price_resident is not None else None,
+            "price_nonresident": float(p.price_nonresident) if p.price_nonresident is not None else None,
         }
         for p, c, s in rows
     ]
@@ -71,7 +79,7 @@ def review_queue(limit: int = 200, run_id: int | None = None, db: Session = Depe
         .all()
     ]
     return {"threshold": threshold, "total": total, "run_id": run_id,
-            "low_confidence": low, "reports": reports}
+            "filter": filter, "low_confidence": low, "reports": reports}
 
 
 class PriceReviewAction(BaseModel):

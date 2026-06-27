@@ -696,6 +696,14 @@ function CompletionPanel({ result }: { result: BatchResult }) {
                   Проверить {f.needs_review} →
                 </Link>
               )}
+              {f.run_id != null && typeof f.anomalies === "number" && f.anomalies > 0 && (
+                <Link
+                  href={`/admin/review?run=${f.run_id}&filter=anomaly`}
+                  className="rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                >
+                  {f.anomalies} аномалий
+                </Link>
+              )}
               {f.run_id != null && (
                 <Link
                   href={`/admin/runs/${f.run_id}`}

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
-import { ApiError, getRunDetail, reprocessRun } from "@/lib/api";
+import { ApiError, getRunDetail, reprocessRun, rollbackRun } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import type { RunDetail } from "@/lib/types";
 
@@ -13,7 +14,9 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reprocessing, setReprocessing] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const router = useRouter();
 
   async function load() {
     setLoading(true);
@@ -47,6 +50,24 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
     }
   }
 
+  async function doRollback() {
+    if (rollingBack) return;
+    const n = data?.counts.positions ?? 0;
+    if (!window.confirm(`Откатить прогон #${runId}? Будут удалены ${n} цен этого прогона. Действие необратимо.`)) {
+      return;
+    }
+    setRollingBack(true);
+    setMsg(null);
+    try {
+      const r = await rollbackRun(runId);
+      setMsg(`Откат выполнен: удалено ${r.deleted_prices} цен. Возврат на дашборд…`);
+      setTimeout(() => router.push("/admin"), 1400);
+    } catch (e) {
+      setMsg(e instanceof ApiError ? `Ошибка: ${e.message}` : "Не удалось откатить.");
+      setRollingBack(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       <Link href="/admin" className="text-sm font-medium text-brand-700 hover:underline">
@@ -72,10 +93,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             </p>
           </header>
 
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Stat label="Всего позиций" value={data.counts.positions} />
             <Stat label="В каталоге" value={data.counts.matched} tone="ok" />
             <Stat label="На проверке" value={data.counts.needs_review} tone="warn" />
+            <Stat label="Аномалии" value={data.counts.anomalies} tone={data.counts.anomalies > 0 ? "warn" : undefined} />
             <Stat label="Статус" value={data.status} />
           </div>
 
@@ -88,14 +110,32 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                 Проверить {data.counts.needs_review} →
               </Link>
             )}
+            {data.counts.anomalies > 0 && (
+              <Link
+                href={`/admin/review?run=${data.run_id}&filter=anomaly`}
+                className="rounded-full border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+              >
+                Показать {data.counts.anomalies} аномалий
+              </Link>
+            )}
             {data.has_original && (
               <button
                 type="button"
                 onClick={doReprocess}
-                disabled={reprocessing}
+                disabled={reprocessing || rollingBack}
                 className="rounded-full border border-ink-200 px-5 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
               >
                 {reprocessing ? "Переобрабатываю…" : "Переобработать из оригинала 💾"}
+              </button>
+            )}
+            {data.status !== "rolled_back" && (
+              <button
+                type="button"
+                onClick={doRollback}
+                disabled={rollingBack || reprocessing}
+                className="rounded-full border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                {rollingBack ? "Откатываю…" : "Откатить прогон"}
               </button>
             )}
           </div>
@@ -125,15 +165,20 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                         {p.canonical_name ?? <span className="text-ink-300">—</span>}
                       </td>
                       <td className="px-4 py-2.5">
-                        {p.status === "matched" ? (
-                          <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200">
-                            в каталоге
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
-                            на проверке
-                          </span>
-                        )}
+                        <span className="inline-flex items-center gap-1">
+                          {p.status === "matched" ? (
+                            <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200">
+                              в каталоге
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                              на проверке
+                            </span>
+                          )}
+                          {p.is_anomaly && (
+                            <span title="Ценовая аномалия" className="text-red-600">⚠</span>
+                          )}
+                        </span>
                       </td>
                       <td className="px-4 py-2.5 text-ink-700">
                         {p.price_resident != null ? formatPrice(p.price_resident) : p.price != null ? formatPrice(p.price) : "—"}

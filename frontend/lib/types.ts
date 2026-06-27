@@ -252,6 +252,9 @@ export interface ReviewItem {
   price: number;
   currency: string;
   match_confidence: number;
+  is_anomaly?: boolean;
+  price_resident?: number | null;
+  price_nonresident?: number | null;
 }
 
 export interface ReviewReport {
@@ -265,8 +268,9 @@ export interface ReviewReport {
 
 export interface ReviewQueue {
   threshold: number;
-  total?: number; // всего низко-уверенных (с учётом фильтра run_id)
+  total?: number; // всего записей очереди (с учётом фильтров run_id/anomaly)
   run_id?: number | null;
+  filter?: string | null; // "anomaly" — режим ценовых аномалий
   low_confidence: ReviewItem[];
   reports: ReviewReport[];
 }
@@ -279,6 +283,7 @@ export interface RunPosition {
   service_id: string | null;
   match_confidence: number;
   status: "matched" | "needs_review";
+  is_anomaly: boolean;
   price: number | null;
   price_resident: number | null;
   price_nonresident: number | null;
@@ -296,7 +301,7 @@ export interface RunDetail {
   clinic_id: string | null;
   clinic_name: string | null;
   has_original: boolean;
-  counts: { positions: number; matched: number; needs_review: number; threshold: number };
+  counts: { positions: number; matched: number; needs_review: number; anomalies: number; threshold: number };
   positions: RunPosition[];
 }
 

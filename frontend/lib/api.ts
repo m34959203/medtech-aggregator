@@ -238,9 +238,16 @@ export function catalogExportUrl(format: "xlsx" | "csv"): string {
 // --- Спринт-2: ревью и лиды ---
 import type { ReviewQueue, RunDetail } from "./types";
 
-export function getReviewQueue(runId?: number, signal?: AbortSignal): Promise<ReviewQueue> {
-  const qs = runId != null ? `?run_id=${runId}` : "";
-  return apiFetch<ReviewQueue>(`/api/review/queue${qs}`, { signal });
+export function getReviewQueue(
+  runId?: number,
+  filter?: "anomaly",
+  signal?: AbortSignal,
+): Promise<ReviewQueue> {
+  const p = new URLSearchParams();
+  if (runId != null) p.set("run_id", String(runId));
+  if (filter) p.set("filter", filter);
+  const qs = p.toString();
+  return apiFetch<ReviewQueue>(`/api/review/queue${qs ? `?${qs}` : ""}`, { signal });
 }
 
 // Деталь прогона приёма: метаданные + позиции (raw → нормализованное).
@@ -251,6 +258,11 @@ export function getRunDetail(runId: number, signal?: AbortSignal): Promise<RunDe
 // Переобработать архивный прогон из сохранённого оригинала.
 export function reprocessRun(runId: number): Promise<unknown> {
   return apiFetch(`/api/ingest/archive/${runId}/reprocess`, { method: "POST" });
+}
+
+// Откат прогона: удалить цены, добавленные прогоном (деструктивно).
+export function rollbackRun(runId: number): Promise<{ deleted_prices: number }> {
+  return apiFetch(`/api/ingest/runs/${runId}/rollback`, { method: "POST" });
 }
 
 export function reviewPrice(

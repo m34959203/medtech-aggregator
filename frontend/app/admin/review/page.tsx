@@ -17,17 +17,20 @@ export default function ReviewPage() {
   const [services, setServices] = useState<{ id: string; canonical_name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [runId, setRunId] = useState<number | null>(null);
+  const [anomalyOnly, setAnomalyOnly] = useState(false);
 
-  // Фильтр по прогону из URL (?run=N) — переход из панели завершения приёма.
+  // Фильтры из URL: ?run=N (прогон) и ?filter=anomaly (ценовые аномалии).
   useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("run");
+    const sp = new URLSearchParams(window.location.search);
+    const v = sp.get("run");
     setRunId(v ? Number(v) : null);
+    setAnomalyOnly(sp.get("filter") === "anomaly");
   }, []);
 
   const refresh = useCallback(async () => {
     try {
       const [q, s] = await Promise.all([
-        getReviewQueue(runId ?? undefined),
+        getReviewQueue(runId ?? undefined, anomalyOnly ? "anomaly" : undefined),
         getServices(),
       ]);
       setQueue(q);
@@ -36,7 +39,7 @@ export default function ReviewPage() {
     } catch (e) {
       setError(e instanceof ApiError ? `Ошибка: ${e.message}` : "Бэкенд недоступен.");
     }
-  }, [runId]);
+  }, [runId, anomalyOnly]);
 
   useEffect(() => {
     refresh();
@@ -58,11 +61,13 @@ export default function ReviewPage() {
         </p>
       </header>
 
-      {runId != null && (
+      {(runId != null || anomalyOnly) && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800 ring-1 ring-inset ring-brand-100">
           <span>
-            Фильтр: прогон <b>#{runId}</b>
-            {queue?.total != null && <> · {queue.total} позиций на проверку</>}
+            Фильтр:
+            {anomalyOnly && <> ⚠ <b>ценовые аномалии</b></>}
+            {runId != null && <> прогон <b>#{runId}</b></>}
+            {queue?.total != null && <> · {queue.total} позиций</>}
           </span>
           <a href="/admin/review" className="font-medium underline-offset-2 hover:underline">
             показать все
@@ -223,11 +228,24 @@ function ReviewRow({
               <b className="text-amber-600">не распознано — назначьте услугу</b>
             )}
           </p>
-          <p className="mt-1 text-xs">
+          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
             <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">
               уверенность {Math.round(item.match_confidence * 100)}%
-            </span>{" "}
+            </span>
+            {item.is_anomaly && (
+              <span
+                className="rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-700"
+                title="Ценовая аномалия (нерезидент < резидент)"
+              >
+                ⚠ аномалия
+              </span>
+            )}
             <span className="text-ink-500">{formatPrice(item.price, item.currency)}</span>
+            {(item.price_resident != null || item.price_nonresident != null) && (
+              <span className="text-ink-400">
+                (рез. {item.price_resident ?? "—"} / нерез. {item.price_nonresident ?? "—"})
+              </span>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

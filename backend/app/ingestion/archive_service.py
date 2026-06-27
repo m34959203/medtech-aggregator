@@ -84,6 +84,7 @@ def ingest_archive(
             continue
         if warns:
             warned += 1
+        anomaly = "nonresident<resident" in warns  # детерминированно, не зависит от дублей
         svc, conf = nz.match_archive(item.name, item.code)
         if svc is not None and conf >= threshold:
             matched += 1
@@ -101,6 +102,7 @@ def ingest_archive(
                 "code_source": item.code or "",
                 "tarif_code": (getattr(svc, "tarificator_code", "") if svc is not None else "") or (item.code or ""),
                 "confidence": conf if svc is not None else 0.0,
+                "is_anomaly": anomaly,
             }
 
     for data in batch.values():
@@ -113,10 +115,11 @@ def ingest_archive(
                 .order_by(Price.valid_from.desc())
                 .first()
             )
-        # аномалия: цена изменилась >50% относительно предыдущей версии
-        if existing and existing.price and float(existing.price) > 0:
-            if abs(data["price"] - float(existing.price)) / float(existing.price) > 0.5:
-                anomalies += 1
+        # Аномалия — детерминированная (нерезидент<резидент), не version-diff:
+        # прежняя «>50% к предыдущей версии» плясала из-за дублей прогонов (см. долг
+        # идемпотентности). Считаем стабильно по флагу позиции.
+        if data["is_anomaly"]:
+            anomalies += 1
         if existing:
             # версионирование: старую цену — в историю, актуальную обновляем
             existing.price = data["price"]
@@ -128,6 +131,7 @@ def ingest_archive(
             existing.service_code_source = data["code_source"]
             existing.tarificator_code = data["tarif_code"]
             existing.match_confidence = data["confidence"]
+            existing.is_anomaly = data["is_anomaly"]
             existing.valid_from = valid_from
             record_price_history(db, clinic_id, sid, data["price"])
         else:
@@ -139,6 +143,7 @@ def ingest_archive(
                 service_code_source=data["code_source"],
                 tarificator_code=data["tarif_code"],
                 currency="KZT", match_confidence=data["confidence"],
+                is_anomaly=data["is_anomaly"],
                 valid_from=valid_from,
             ))
             if sid is not None:

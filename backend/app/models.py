@@ -185,6 +185,9 @@ class Price(Base):
     # price (выше) = основной тариф (резидент, либо единственный) — путь MedPrice не ломается.
     price_resident: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     price_nonresident: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Детерминированная ценовая аномалия (нерезидент<резидент и т.п.) — для фильтра
+    # ревью «показать аномалии». НЕ version-diff (тот плавал из-за дублей прогонов).
+    is_anomaly: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     service_code_source: Mapped[str] = mapped_column(String(48), default="")  # код как в документе
     tarificator_code: Mapped[str] = mapped_column(String(32), default="")      # нормализованный код тарификатора
     # §2.2 MedPrice: URL источника записи (откуда снята цена) — web_scrape: страница
