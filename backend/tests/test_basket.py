@@ -69,6 +69,19 @@ def test_recommend_by_names_list(client):
     assert found == {"Общий анализ крови", "Глюкоза (в крови)"}
 
 
+def test_garbage_not_recognized_as_real_analysis(client):
+    """Мусорный ввод («HemoglobinX», «Test 123») НЕ должен ложно распознаваться
+    реальным анализом — честное «не распознано» (порог рецепта 0.72/0.85)."""
+    r = client.post("/api/basket/recommend",
+                    json={"names": ["HemoglobinX", "Test 123", "xyz123 random", "asdfgh"]}).json()
+    assert r["services_found"] == 0
+    assert r["recognized"] == []
+    # реальный анализ рядом с мусором всё ещё ловится
+    r2 = client.post("/api/basket/recommend", json={"names": ["HemoglobinX", "ОАК"]}).json()
+    found = {it["canonical"] for it in r2["recognized"]}
+    assert found == {"Общий анализ крови"}
+
+
 def test_single_clinic_prefers_coverage_then_price(client):
     # только ОАК+Глюкоза: Б дешевле по сумме (1800+1200=3000) и покрывает оба → лучше А (3000 же? А=3000)
     r = client.post("/api/basket/recommend",

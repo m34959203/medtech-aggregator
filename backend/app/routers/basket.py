@@ -25,7 +25,11 @@ from .aggregator import _build_comparison
 router = APIRouter(prefix="/api/basket", tags=["basket"])
 
 _BULLET = re.compile(r"^\s*(?:\d+[.):]\s*|[-•·*]\s*)")
-_MATCH_FLOOR = 0.6
+# Пользовательский рецепт строже ингеста: ложное «узнавание» мусора («HemoglobinX»,
+# «Test 123») вводит пациента в заблуждение. fuzzy ≥0.72, семантика ≥0.85
+# (мед-косинусы 0.72–0.85 ненадёжны — модель путает по смыслу). Ниже — «не распознано».
+_MATCH_FLOOR = 0.72
+_SEM_FLOOR = 0.85
 
 
 def extract_service_names(text: str) -> list[str]:
@@ -92,11 +96,12 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
     # Каждую строку — через полный разбор: gate шума (ФИО/дата/заголовок не услуги),
     # декомпозиция панелей (липидограмма→4), строгий матч с порогом отказа.
     for nm in names:
-        res = norm.analyze(nm)
+        res = norm.analyze(nm, floor=_MATCH_FLOOR, sem_floor=_SEM_FLOOR)
         if res["kind"] == "noise":
             continue  # шум направления — не услуга
         for it in res["items"]:
-            if it["status"] != "matched":
+            # порог рецепта: ниже — честное «не распознано», без принудительной привязки
+            if it["status"] != "matched" or float(it.get("confidence") or 0.0) < _MATCH_FLOOR:
                 unrecognized.append(nm if it["canonical"] in ("—", None) else it["canonical"])
                 continue
             svc = norm.index.get(_clean(it["canonical"]))

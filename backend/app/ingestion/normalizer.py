@@ -379,11 +379,18 @@ class Normalizer:
         return out
 
     # ---- Строгий разбор строки (gate + декомпозиция + порог отказа) — TASK 1-4 ----
-    def match_one(self, raw: str) -> dict:
+    def match_one(self, raw: str, floor: float | None = None,
+                  sem_floor: float | None = None) -> dict:
         """READ-ONLY строгий матч ОДНОЙ атомарной строки. Ниже reject_floor —
         status=unmatched (не тянем мусорный «лучший» с фиктивными 100%, TASK 2).
-        Гарды: моча/кровь по умолчанию кровь, повторный/онлайн приём отдельно."""
-        floor = settings.reject_floor
+        Гарды: моча/кровь по умолчанию кровь, повторный/онлайн приём отдельно.
+
+        floor/sem_floor — пороги отказа для fuzzy и семантики (по умолчанию из
+        settings). Пользовательский путь «по рецепту» передаёт более строгие
+        значения: ложное «узнавание» мусора («HemoglobinX», «Test 123») вводит
+        пациента в заблуждение сильнее, чем честное «не распознано»."""
+        floor = settings.reject_floor if floor is None else floor
+        sem_floor = settings.semantic_threshold if sem_floor is None else sem_floor
         svc, conf = self._fuzzy(raw)
         if svc and conf >= floor:
             canonical, category = svc.canonical_name, svc.category
@@ -409,7 +416,7 @@ class Normalizer:
         from . import semantic
         if semantic.available():
             sid, score = semantic.match(self.db, raw)
-            if sid and score >= max(settings.semantic_threshold, floor):
+            if sid and score >= max(sem_floor, floor):
                 tgt = self.db.get(ServiceCatalog, sid)
                 if tgt:
                     return {"canonical": tgt.canonical_name, "category": tgt.category,
@@ -418,9 +425,11 @@ class Normalizer:
         return {"canonical": "—", "category": None,
                 "confidence": round(conf, 3), "method": "none", "status": "unmatched"}
 
-    def analyze(self, raw: str) -> dict:
+    def analyze(self, raw: str, floor: float | None = None,
+                sem_floor: float | None = None) -> dict:
         """Полный разбор строки направления/прайса: gate (шум) → декомпозиция панелей
-        → строгий матч каждой части. Возвращает {raw, kind, reason, items[]}."""
+        → строгий матч каждой части. Возвращает {raw, kind, reason, items[]}.
+        floor/sem_floor пробрасываются в match_one (рецепт — строже, см. там)."""
         from . import line_gate, panels
         kind, reason = line_gate.classify_line(raw)
         if kind == "noise":
@@ -431,7 +440,8 @@ class Normalizer:
             items = [{"canonical": p, "category": "Анализы", "confidence": 1.0,
                       "method": "panel", "status": "matched"} for p in parts]
             return {"raw": raw, "kind": "service", "reason": "", "items": items}
-        return {"raw": raw, "kind": "service", "reason": "", "items": [self.match_one(raw)]}
+        return {"raw": raw, "kind": "service", "reason": "",
+                "items": [self.match_one(raw, floor=floor, sem_floor=sem_floor)]}
 
 
 def sanitize_synonyms(db: Session) -> int:
