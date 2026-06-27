@@ -76,28 +76,63 @@ export default function ClinicMap({
         mapRef.current = map;
 
         const coords: number[][] = [];
+        // Текст координат на клинику — по id; кнопка балуна передаёт только id,
+        // чтобы в inline-onclick не попадал произвольный текст с кавычками.
+        const waTexts: Record<string, string> = {};
+        (window as unknown as { __medtechWaSend?: (id: string) => void }).__medtechWaSend = (
+          id: string,
+        ) => {
+          const el = document.getElementById(`wa-in-${id}`) as HTMLInputElement | null;
+          const digits = (el?.value || "").replace(/[^0-9]/g, "");
+          if (digits.length < 10) {
+            // eslint-disable-next-line no-alert
+            alert("Введите номер с кодом страны, например +7 700 123 45 67");
+            el?.focus();
+            return;
+          }
+          window.open(`https://wa.me/${digits}?text=${waTexts[id] || ""}`, "_blank", "noopener");
+        };
         for (const p of points) {
           const isCheapest = p.clinic_id === cheapestClinicId;
           const addr = p.address || p.district || "";
           // Маршрут до точки для навигатора (от текущего местоположения).
           const routeUrl = `https://yandex.ru/maps/?rtext=~${p.lat},${p.lng}&rtt=auto`;
-          // Текст для WhatsApp: название, адрес и кликабельный маршрут.
+          // Точка на карте по координатам (открывается в любом навигаторе).
+          const pinUrl = `https://yandex.ru/maps/?pt=${p.lng},${p.lat}&z=17`;
+          // Текст для WhatsApp: название, адрес, координаты, точка на карте и маршрут.
           const waText = encodeURIComponent(
-            [p.clinic_name, addr, addr ? "" : null, `Маршрут: ${routeUrl}`]
+            [
+              p.clinic_name,
+              addr || null,
+              `Координаты: ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`,
+              `На карте: ${pinUrl}`,
+              `Маршрут: ${routeUrl}`,
+            ]
               .filter((s) => s != null && s !== "")
               .join("\n"),
           );
-          const waUrl = `https://wa.me/?text=${waText}`;
+          waTexts[p.clinic_id] = waText;
+          // Форма WhatsApp: поле номера + кнопка → wa.me/<номер> с адресом и маршрутом.
+          const waForm =
+            `<div style="margin-top:10px">` +
+            `<div style="font-size:12px;color:#64748b;margin-bottom:5px">📍 Отправить координаты в WhatsApp:</div>` +
+            `<div style="display:flex;gap:6px;align-items:stretch">` +
+            `<input id="wa-in-${p.clinic_id}" type="tel" inputmode="tel" autocomplete="tel"` +
+            ` placeholder="+7 700 000 00 00"` +
+            ` style="flex:1;min-width:0;width:100%;padding:7px 9px;border:1px solid #d1d5db;` +
+            `border-radius:8px;font-size:13px;outline:none" />` +
+            `<button type="button"` +
+            ` onclick="window.__medtechWaSend&&window.__medtechWaSend('${p.clinic_id}')"` +
+            ` style="flex:none;display:inline-flex;align-items:center;gap:5px;padding:7px 13px;` +
+            `background:#25D366;color:#fff;border:none;border-radius:8px;font-weight:600;` +
+            `font-size:13px;line-height:1;cursor:pointer">Отправить</button>` +
+            `</div></div>`;
           const body = [
             `<b style="color:#0f766e">${formatPrice(p.price, p.currency)}</b>`,
             isCheapest ? " · 🏆 Лучшая цена" : "",
             `<br><span style="color:#64748b">${addr}</span>`,
             p.phone ? `<br><a href="tel:${p.phone.replace(/[^\d+]/g, "")}">${p.phone}</a>` : "",
-            `<br><a href="${waUrl}" target="_blank" rel="noopener noreferrer"` +
-              ` style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;` +
-              `padding:7px 12px;background:#25D366;color:#fff;border-radius:8px;` +
-              `text-decoration:none;font-weight:600;font-size:13px;line-height:1;">` +
-              `📍 Отправить адрес в WhatsApp</a>`,
+            waForm,
           ].join("");
           const placemark = new ymaps.Placemark(
             [p.lat, p.lng],
