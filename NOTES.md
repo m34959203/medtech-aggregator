@@ -443,3 +443,9 @@ KDL branch-страницы (abay/baykonur/erkinkala/shayan) давали «го
 - **API**: `description` добавлен в `ServiceComparison` (страница услуги + поиск) и `ServiceOut`; `_build_comparison` отдаёт `service.description`.
 - **Фронт**: показ под названием услуги в шапке `ComparisonView` (страница услуги) и в `ServiceCard` (карточки поиска, `line-clamp-2`). Тип `ServiceComparison.description?`.
 - Verify: tsc 0 ошибок, ребилд backend+frontend. Прод: `/api/compare` и `/api/search` отдают description, рендерится в HTML страницы услуги и карточках.
+
+## Чек-поинт 2026-06-27 (#48) — адреса для офферов без адреса
+- **Жалоба**: в списках предложений не все услуги с адресами. Аудит: из публичных клиник без адреса ровно **2** — «Invitro — Алматы» (451 цена) и «KazMedClinic — Алматы» (349), но из-за объёма цен они часто в выдаче.
+- **Причина**: спарсены не-103.kz адаптерами (`invitro.kz/analizes`, `kazmedclinic.kz/ceny`) — те дают только цену+имя; JSON-LD сайтов адрес/гео не отдаёт (parser `fetch_contact` достал лишь телефоны).
+- **Фикс данными** (бэкап `backups/medtech-pg-before-addr-fix.sql`): Invitro — реальный филиал с `invitro.103.kz` (Кунаева 32 + гео 43.2662/76.9492 + Пн–Вс 07:00–18:00); KazMedClinic — с офиц. сайта (мкр. Дархан-2, 29 + часы). Заполнены только пустые поля. Гоча: `docker exec` БЕЗ `-i` не пробрасывает stdin → heredoc-SQL молча не выполняется.
+- Прод: публичных клиник без адреса **0**; `/api/compare` офферы все с адресом. Правка только данных — ребилд не нужен.
