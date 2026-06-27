@@ -111,6 +111,21 @@ def test_matched_not_broken(db, line, expected):
     assert it["status"] == "matched" and it["canonical"] == expected, f"{line} -> {it}"
 
 
+def test_comma_list_split(db):
+    # Список через запятую → ДВЕ услуги (не теряем вторую). В фото-пути Gemini сам
+    # чистит хвосты («ОАМ по м/ж» → «Общий анализ мочи»); здесь — текстовая страховка.
+    r = Normalizer(db).analyze("ОАК, ОАМ")
+    cans = {it["canonical"] for it in r["items"] if it["status"] == "matched"}
+    assert "Общий анализ крови" in cans and "Общий анализ мочи" in cans, r["items"]
+
+
+def test_comma_not_oversplit(db):
+    # «ОАК, 5 diff» — одна услуга с уточнением, НЕ дробить на мусор «5 diff».
+    r = Normalizer(db).analyze("Общий анализ крови, 5 diff")
+    matched = [it for it in r["items"] if it["status"] == "matched"]
+    assert len(matched) == 1 and matched[0]["canonical"] == "Общий анализ крови", r["items"]
+
+
 def test_ferritin_prefers_blood(db):
     sanitize_synonyms(db)
     it = Normalizer(db).analyze("Ферритин (феретин)")["items"][0]

@@ -139,7 +139,12 @@ def _biomat_conflict(raw: str, canonical: str) -> bool:
     if rb in ("stool", "sputum") and rb != cb:
         return True
     if cb == "urine" and rb != "urine":
-        return True
+        # Конфликт лишь когда raw — ТОТ ЖЕ аналит, что мочевой каноним, т.е. канон =
+        # «<база> в моче», а raw ≈ <база> («Глюкоза» → «Глюкоза в моче» → дефолт-кровь).
+        # Аббревиатуры с собственным мочевым смыслом («ОАМ» → «Общий анализ мочи»)
+        # базой не совпадают — это НЕ конфликт, услуга верна.
+        base = re.sub(r"\s+", " ", _URINE_RE.sub(" ", canonical.lower())).strip()
+        return bool(base) and fuzz.token_set_ratio(_clean(raw), _clean(base)) >= 75
     return False
 
 
@@ -518,8 +523,35 @@ class Normalizer:
             items = [{"canonical": p, "category": "Анализы", "confidence": 1.0,
                       "method": "panel", "status": "matched"} for p in parts]
             return {"raw": raw, "kind": "service", "reason": "", "items": items}
+        listed = self._split_list(raw, floor, sem_floor)
+        if listed is not None:
+            return {"raw": raw, "kind": "service", "reason": "", "items": listed}
         return {"raw": raw, "kind": "service", "reason": "",
                 "items": [self.match_one(raw, floor=floor, sem_floor=sem_floor)]}
+
+    def _split_list(self, raw: str, floor: float | None,
+                    sem_floor: float | None) -> list[dict] | None:
+        """Список услуг через запятую («ОАК, ОАМ по м/ж» → ОАК + ОАМ).
+
+        panels.decompose дробит только явные «Панель: a, b, c», а голый список —
+        нет (generic split «+»/«,» опасен: «ОАК + лейкоформула» — ОДНА услуга).
+        Поэтому дробим по запятой и принимаем разбиение ТОЛЬКО если ≥2 сегмента
+        дали РАЗНЫЕ распознанные услуги — иначе «ОАК, 5 diff» / «ОАК, парацетамол»
+        остаются цельной строкой. «/» НЕ режем (ломает «м/ж», «Na/K/Cl»)."""
+        if "," not in raw:
+            return None
+        segs = [s.strip(" .;:–—") for s in raw.split(",")]
+        segs = [s for s in segs if len(s) >= 2 and re.search(r"[A-Za-zА-Яа-яЁё]{2,}", s)]
+        if len(segs) < 2:
+            return None
+        items: list[dict] = []
+        distinct: set = set()
+        for s in segs:
+            for it in self.analyze(s, floor=floor, sem_floor=sem_floor)["items"]:
+                items.append(it)
+                if it.get("status") == "matched":
+                    distinct.add(it.get("service_id") or _clean(it.get("canonical") or ""))
+        return items if len(distinct) >= 2 else None
 
 
 def sanitize_synonyms(db: Session) -> int:
