@@ -265,6 +265,7 @@ def seed_103(db, report: list[dict]) -> None:
         name = f"{cl.get('name','?')} (103.kz)"
         clinic = _clinic(db, name, cl.get("city") or "", website=cl.get("source_url") or "",
                          address=cl.get("address") or "", phone=cl.get("phone") or "",
+                         working_hours=cl.get("working_hours") or "",
                          lat=cl.get("lat"), lng=cl.get("lng"))
         src = _source(db, clinic.id, "web_scrape", cl.get("source_url") or name)
         res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",
@@ -314,6 +315,7 @@ def seed_103_chains(db, report: list[dict]) -> None:
         name = f"{rec['name']} (103.kz)"
         clinic = _clinic(db, name, city, website=f"{rec['base']}/",
                          address=rec.get("address") or "", phone=rec.get("phone") or "",
+                         working_hours=rec.get("working_hours") or "",
                          lat=rec.get("lat"), lng=rec.get("lng"))
         src = _source(db, clinic.id, "web_scrape", rec["source_url"])
         res = ingest_items(db, clinic_id=clinic.id, channel="pull", source_type="web_scrape",

@@ -158,10 +158,54 @@ def discover_chain_branches(limit: int = 500) -> list[str]:
     return branches[:limit]
 
 
+# schema.org dayOfWeek → (русское сокращение, индекс недели)
+_DOW = {"monday": ("Пн", 0), "tuesday": ("Вт", 1), "wednesday": ("Ср", 2),
+        "thursday": ("Чт", 3), "friday": ("Пт", 4), "saturday": ("Сб", 5),
+        "sunday": ("Вс", 6)}
+
+
+def _parse_hours(obj: dict) -> str:
+    """§3.3 режим работы из JSON-LD LocalBusiness (openingHoursSpecification).
+    Группирует подряд идущие дни с одинаковым графиком: «Пн–Пт 08:00–16:00, Сб 09:00–14:00»."""
+    spec = obj.get("openingHoursSpecification")
+    days: dict[int, tuple[str, str, str]] = {}
+    if isinstance(spec, list):
+        for s in spec:
+            if not isinstance(s, dict):
+                continue
+            opens, closes = (s.get("opens") or "")[:5], (s.get("closes") or "")[:5]
+            if not opens or not closes:
+                continue
+            dow = s.get("dayOfWeek")
+            for d in (dow if isinstance(dow, list) else [dow]):
+                key = str(d).rstrip("/").split("/")[-1].lower()
+                if key in _DOW:
+                    abbr, idx = _DOW[key]
+                    days[idx] = (abbr, opens, closes)
+    if not days:
+        return ""
+    items = sorted(days.items())               # [(idx,(abbr,opens,closes)), ...]
+    out, i = [], 0
+    while i < len(items):
+        j = i
+        while (j + 1 < len(items) and items[j + 1][0] == items[j][0] + 1
+               and items[j + 1][1][1:] == items[i][1][1:]):
+            j += 1
+        a, b = items[i][1][0], items[j][1][0]
+        opens, closes = items[i][1][1], items[i][1][2]
+        span = a if i == j else f"{a}–{b}"
+        # круглосуточно всю неделю → человеческая подпись
+        if span == "Пн–Вс" and opens == "00:00" and closes in ("23:59", "24:00"):
+            return "Круглосуточно"
+        out.append(f"{span} {opens}–{closes}")
+        i = j + 1
+    return ", ".join(out)
+
+
 def _localbusiness_meta(html: str) -> dict:
-    """Имя/город/адрес/телефон клиники из JSON-LD LocalBusiness страницы /pricing/.
+    """Имя/город/адрес/телефон/режим клиники из JSON-LD LocalBusiness страницы /pricing/.
     (geo там нет — его добираем из карточки главной через fetch_103kz_card.)"""
-    meta = {"name": None, "city": None, "address": None, "phone": ""}
+    meta = {"name": None, "city": None, "address": None, "phone": "", "working_hours": ""}
     for block in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', html, re.S):
         try:
             data = json.loads(block.strip())
@@ -177,6 +221,7 @@ def _localbusiness_meta(html: str) -> dict:
                 meta["address"] = addr.get("streetAddress") or meta["address"]
             tel = obj.get("telephone") or ""
             meta["phone"] = re.sub(r"\s+", " ", tel.split(",")[0].strip())
+            meta["working_hours"] = _parse_hours(obj)
             return meta
     return meta
 
@@ -208,6 +253,7 @@ def fetch_pricing(slug: str) -> dict | None:
         "slug": slug, "base": base, "source_url": pricing,
         "name": meta.get("name") or slug, "city": meta.get("city"),
         "address": meta.get("address"), "phone": meta.get("phone") or "",
+        "working_hours": meta.get("working_hours") or "",
         "lat": None, "lng": None, "items": items,
     }
 
@@ -231,6 +277,7 @@ def _block(rec: dict) -> dict:
         "clinic": {
             "name": rec["name"], "city": rec.get("city"),
             "address": rec.get("address"), "phone": rec.get("phone") or "",
+            "working_hours": rec.get("working_hours") or "",
             "lat": rec.get("lat"), "lng": rec.get("lng"),
             "website": f"{rec['base']}/", "source_url": rec["source_url"],
         },

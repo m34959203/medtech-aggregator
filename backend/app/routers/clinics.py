@@ -83,10 +83,16 @@ def clinic_profile(clinic_id: uuid.UUID, db: Session = Depends(get_db)):
         "is_active": getattr(p, "is_active", True) is not False,  # NULL легаси → активна
     } for p, svc in rows]
     services.sort(key=lambda s: s["price"])
+    # §3.3 «ссылка на сайт»: если у клиники нет website — фолбэк на URL источника,
+    # откуда снят прайс (Price.source_url), чтобы пользователь мог перейти к первоисточнику.
+    website = clinic.website or ""
+    if not website:
+        website = next((getattr(p, "source_url", "") for p, _ in rows
+                        if getattr(p, "source_url", "")), "")
     return {
         "id": clinic.id, "name": clinic.name, "city": clinic.city,
         "district": clinic.district, "address": clinic.address, "phone": clinic.phone,
-        "working_hours": clinic.working_hours or "", "website": clinic.website or "",
+        "working_hours": clinic.working_hours or "", "website": website,
         "rating": clinic.rating, "online_booking": clinic.online_booking,
         "lat": clinic.lat, "lng": clinic.lng,
         "services_count": len(services), "services": services,
