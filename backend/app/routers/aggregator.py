@@ -11,11 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import distinct, func
 from sqlalchemy.orm import Session
 
+from rapidfuzz import fuzz
+
 from ..config import settings
 from ..data import kz_cities
 from ..db import get_db
 from ..ingestion import category as category_enum
 from ..ingestion import ontology, variants
+from ..ingestion.normalizer import _clean
 from ..models import Clinic, Price, PriceHistory, ServiceCatalog
 from ..schemas import (
     ClinicCompareOut,
@@ -86,14 +89,48 @@ def _variants_of(db: Session, service: ServiceCatalog) -> list[ServiceVariant]:
     return sorted(out, key=lambda v: v.min_price)
 
 
+_SEARCH_FLOOR = 0.7
+
+
+def _relevance(svc: ServiceCatalog, q: str) -> float:
+    """Релевантность услуги запросу (0..1). Заменяет наивный подстрочный матч,
+    который цеплял чужое по буквам ВНУТРИ слова («T4» → аллергокод t4, «TTG» →
+    anti-tTG у IgA). Считаем по ТОКЕНАМ (целым словам), а не по подстроке:
+    точное совпадение имени/синонима > точный токен-слово > префикс токена
+    (автодополнение) > фраза-подстрока (≥5) > опечатки (fuzzy)."""
+    ql = _clean(q)
+    if not ql:
+        return 0.0
+    ck = _clean(svc.canonical_name)
+    sks = [k for k in (_clean(s) for s in (svc.synonyms or [])) if k]
+    ctoks = set(ck.split())
+    stoks = {t for k in sks for t in k.split()}
+    # Канон весит выше синонима на каждом тире — верная услуга всплывает над той,
+    # к которой имя затесалось загрязнённым синонимом (напр. «глюкоза» у «Альбумина»).
+    if ql == ck:
+        return 1.0
+    if ql in sks:                                   # точный синоним
+        return 0.97
+    if ql in ctoks:                                 # точный токен канона (УЗИ, ОАК)
+        return 0.92
+    if ql in stoks:                                 # точный токен синонима
+        return 0.88
+    if len(ql) >= 3:                                # префикс токена (автодополнение)
+        if any(t.startswith(ql) for t in ctoks):
+            return 0.84
+        if any(t.startswith(ql) for t in stoks):
+            return 0.78
+    if len(ql) >= 5 and (ql in ck or any(ql in k for k in sks)):  # фраза-подстрока
+        return 0.72
+    if len(ql) >= 4:                                # опечатки (строже — 88)
+        best = max((fuzz.token_set_ratio(ql, k) for k in [ck, *sks]), default=0)
+        if best >= 88:
+            return best / 100.0
+    return 0.0
+
+
 def _matches(svc: ServiceCatalog, q: str) -> bool:
-    """Совпадение запроса по эталону ИЛИ синонимам (сокращения/народные названия,
-    сырые имена). Фильтруем в Python: SQLite хранит JSON-синонимы в \\uXXXX-эскейпе,
-    поэтому SQL-LIKE по ним не работает с кириллицей. Справочник мал (~30 услуг)."""
-    ql = q.lower().strip()
-    if ql in svc.canonical_name.lower():
-        return True
-    return any(ql in str(syn).lower() for syn in (svc.synonyms or []))
+    return _relevance(svc, q) >= _SEARCH_FLOOR
 
 
 @router.get("/categories", response_model=list[str])
@@ -486,16 +523,19 @@ def suggest(
     limit: int = 10,
     db: Session = Depends(get_db),
 ):
-    """§3.3: автодополнение строки поиска по справочнику (канонические имена + синонимы)."""
-    ql = q.lower().strip()
-    if len(ql) < 2:
+    """§3.3: автодополнение по справочнику — только РЕЛЕВАНТНЫЕ услуги (токен/префикс,
+    не подстрока внутри слова), отсортированные по релевантности, затем по короткому имени."""
+    if len(_clean(q)) < 2:
         return []
-    out: list[str] = []
-    seen: set[str] = set()
-    for s in db.query(ServiceCatalog).order_by(ServiceCatalog.canonical_name).all():
-        name = s.canonical_name
-        hay = [name] + [str(x) for x in (s.synonyms or [])]
-        if any(ql in h.lower() for h in hay) and name.lower() not in seen:
+    scored = []
+    for s in db.query(ServiceCatalog).all():
+        r = _relevance(s, q)
+        if r >= _SEARCH_FLOOR:
+            scored.append((r, len(s.canonical_name), s.canonical_name))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    out, seen = [], set()
+    for _r, _ln, name in scored:
+        if name.lower() not in seen:
             seen.add(name.lower())
             out.append(name)
         if len(out) >= limit:
@@ -548,7 +588,9 @@ def search(
                     if category_enum.to_enum(s.category, s.specialty, s.canonical_name) == cl
                     or cl in (s.category or "").lower()]
     if q:
-        services = [s for s in services if _matches(s, q)]
+        scored = [(_relevance(s, q), s) for s in services]
+        services = [s for r, s in sorted((p for p in scored if p[0] >= _SEARCH_FLOOR),
+                                         key=lambda p: -p[0])]
 
     # только услуги, у которых есть хотя бы одна цена
     results: list[ServiceComparison] = []
