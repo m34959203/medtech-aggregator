@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ApiError, compare, createLead, reportPrice, subscribePrice } from "@/lib/api";
+import { loadGeo, saveGeo } from "@/lib/geolocation";
 import { formatDate, formatPrice } from "@/lib/format";
 import type { PriceTrend, ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
 import CategoryBadge from "./CategoryBadge";
@@ -68,12 +69,23 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
     setGeoState("loading");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setCoords(c);
+        saveGeo(c); // общий «чекпоинт» — переносится на главную/выдачу
         setGeoState("ready");
       },
       () => setGeoState("denied"),
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300_000 },
     );
+  }, []);
+
+  // Подхватываем сохранённый «чекпоинт» (если задан на главной/в выдаче).
+  useEffect(() => {
+    const g = loadGeo();
+    if (g) {
+      setCoords({ lat: g.lat, lng: g.lng });
+      setGeoState("ready");
+    }
   }, []);
 
   useEffect(() => {

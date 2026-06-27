@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { search, suggest } from "@/lib/api";
+import { clearGeo, loadGeo, requestBrowserGeo, saveGeo } from "@/lib/geolocation";
 import type { ServiceComparison, SortOrder } from "@/lib/types";
-import ServiceCard from "./ServiceCard";
+import ServiceCard, { nearestKm } from "./ServiceCard";
 import { CardGridSkeleton } from "./Skeletons";
 
 interface Props {
@@ -21,6 +22,9 @@ export default function SearchExperience({
   const [city, setCity] = useState("");
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState<SortOrder>("price_asc");
+  // «Чекпоинт» местоположения — общий для всех страниц с поиском (localStorage).
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoState, setGeoState] = useState<"idle" | "loading" | "denied">("idle");
 
   const [results, setResults] = useState<ServiceComparison[]>(initialResults);
   const [loading, setLoading] = useState(false);
@@ -29,6 +33,36 @@ export default function SearchExperience({
 
   const abortRef = useRef<AbortController | null>(null);
   const firstRun = useRef(true);
+
+  // Подхватываем сохранённый «чекпоинт» при загрузке (после маунта — localStorage).
+  useEffect(() => {
+    const g = loadGeo();
+    if (g) setCoords({ lat: g.lat, lng: g.lng });
+  }, []);
+
+  const enableGeo = useCallback(async () => {
+    setGeoState("loading");
+    try {
+      const c = await requestBrowserGeo();
+      setCoords(c);
+      saveGeo(c);
+      setGeoState("idle");
+    } catch {
+      setGeoState("denied");
+    }
+  }, []);
+
+  const disableGeo = useCallback(() => {
+    clearGeo();
+    setCoords(null);
+    setGeoState("idle");
+    setSort((s) => (s === "distance" ? "price_asc" : s));
+  }, []);
+
+  // Выбор сортировки «ближе» без чекпоинта — сразу просим геолокацию.
+  useEffect(() => {
+    if (sort === "distance" && !coords && geoState === "idle") enableGeo();
+  }, [sort, coords, geoState, enableGeo]);
 
   const runSearch = useCallback(async () => {
     abortRef.current?.abort();
@@ -47,6 +81,8 @@ export default function SearchExperience({
           city: city || undefined,
           category: category || undefined,
           sort,
+          user_lat: coords?.lat,
+          user_lng: coords?.lng,
           limit: hasFilters ? 30 : 12,
         },
         controller.signal,
@@ -58,7 +94,7 @@ export default function SearchExperience({
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [query, city, category, sort]);
+  }, [query, city, category, sort, coords]);
 
   // Дебаунс по всем фильтрам, кроме самой первой отрисовки (SSR данные уже есть).
   useEffect(() => {
@@ -69,6 +105,17 @@ export default function SearchExperience({
     const t = setTimeout(runSearch, 300);
     return () => clearTimeout(t);
   }, [runSearch]);
+
+  // Сортировка «ближе»: список услуг по расстоянию до ближайшей клиники (клиентски,
+  // т.к. бэкенд сортирует офферы внутри услуги, но не список услуг).
+  const shown = useMemo(() => {
+    if (sort !== "distance" || !coords) return results;
+    return [...results].sort((a, b) => {
+      const da = nearestKm(a, coords);
+      const db = nearestKm(b, coords);
+      return (da ?? Infinity) - (db ?? Infinity);
+    });
+  }, [results, sort, coords]);
 
   return (
     <div className="space-y-8">
@@ -83,6 +130,10 @@ export default function SearchExperience({
         onSort={setSort}
         cities={cities}
         categories={categories}
+        hasGeo={Boolean(coords)}
+        geoState={geoState}
+        onEnableGeo={enableGeo}
+        onDisableGeo={disableGeo}
       />
 
       <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
@@ -106,8 +157,14 @@ export default function SearchExperience({
           <EmptyState />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {results.map((s, i) => (
-              <ServiceCard key={s.service_id} service={s} index={i} city={city} />
+            {shown.map((s, i) => (
+              <ServiceCard
+                key={s.service_id}
+                service={s}
+                index={i}
+                city={city}
+                userCoords={coords}
+              />
             ))}
           </div>
         )}
@@ -127,6 +184,10 @@ interface FilterProps {
   onSort: (v: SortOrder) => void;
   cities: string[];
   categories: string[];
+  hasGeo: boolean;
+  geoState: "idle" | "loading" | "denied";
+  onEnableGeo: () => void;
+  onDisableGeo: () => void;
 }
 
 function FilterBar(p: FilterProps) {
@@ -137,7 +198,7 @@ function FilterBar(p: FilterProps) {
           <SearchAutocomplete query={p.query} onQuery={p.onQuery} />
         </div>
 
-        <div className="sm:col-span-5">
+        <div className="sm:col-span-4">
           <select
             value={p.city}
             onChange={(e) => p.onCity(e.target.value)}
@@ -171,10 +232,72 @@ function FilterBar(p: FilterProps) {
           </select>
         </div>
 
-        <div className="sm:col-span-3">
+        <div className="sm:col-span-4">
           <SortToggle sort={p.sort} onSort={p.onSort} />
         </div>
+
+        <div className="sm:col-span-12">
+          <GeoControl
+            hasGeo={p.hasGeo}
+            geoState={p.geoState}
+            onEnable={p.onEnableGeo}
+            onDisable={p.onDisableGeo}
+          />
+        </div>
       </div>
+    </div>
+  );
+}
+
+function GeoControl({
+  hasGeo,
+  geoState,
+  onEnable,
+  onDisable,
+}: {
+  hasGeo: boolean;
+  geoState: "idle" | "loading" | "denied";
+  onEnable: () => void;
+  onDisable: () => void;
+}) {
+  const pin = (
+    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
+      <path d="M10 18s6-5.3 6-10A6 6 0 0 0 4 8c0 4.7 6 10 6 10Z" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="10" cy="8" r="2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+  if (hasGeo) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 font-medium text-brand-700 ring-1 ring-inset ring-brand-100">
+          {pin} Местоположение учтено — показываем расстояние
+        </span>
+        <button
+          type="button"
+          onClick={onDisable}
+          className="text-ink-400 underline-offset-2 hover:text-ink-700 hover:underline"
+        >
+          сбросить
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <button
+        type="button"
+        onClick={onEnable}
+        disabled={geoState === "loading"}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 font-medium text-ink-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-60"
+      >
+        {pin}
+        {geoState === "loading" ? "Определяем…" : "Рядом со мной — учесть расстояние"}
+      </button>
+      {geoState === "denied" && (
+        <span className="text-xs text-ink-400">
+          Доступ к геолокации отклонён — разрешите его в браузере.
+        </span>
+      )}
     </div>
   );
 }
@@ -324,32 +447,26 @@ function SortToggle({
   sort: SortOrder;
   onSort: (v: SortOrder) => void;
 }) {
+  const btn = (value: SortOrder, label: string) => (
+    <button
+      type="button"
+      onClick={() => onSort(value)}
+      className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 transition ${
+        sort === value
+          ? "bg-brand-600 text-white shadow-sm"
+          : "text-ink-500 hover:text-ink-800"
+      }`}
+      aria-pressed={sort === value}
+    >
+      {label}
+    </button>
+  );
   return (
     <div className="flex rounded-xl border border-ink-200 bg-white p-1 text-sm font-medium">
-      <button
-        type="button"
-        onClick={() => onSort("price_asc")}
-        className={`flex-1 rounded-lg px-3 py-2 transition ${
-          sort === "price_asc"
-            ? "bg-brand-600 text-white shadow-sm"
-            : "text-ink-500 hover:text-ink-800"
-        }`}
-        aria-pressed={sort === "price_asc"}
-      >
-        Дешевле
-      </button>
-      <button
-        type="button"
-        onClick={() => onSort("price_desc")}
-        className={`flex-1 rounded-lg px-3 py-2 transition ${
-          sort === "price_desc"
-            ? "bg-brand-600 text-white shadow-sm"
-            : "text-ink-500 hover:text-ink-800"
-        }`}
-        aria-pressed={sort === "price_desc"}
-      >
-        Дороже
-      </button>
+      {btn("price_asc", "Дешевле")}
+      {btn("price_desc", "Дороже")}
+      {/* «Ближе» — учитывает расстояние; при выборе без чекпоинта спросит геолокацию */}
+      {btn("distance", "Ближе")}
     </div>
   );
 }

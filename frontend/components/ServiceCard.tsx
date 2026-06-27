@@ -1,21 +1,40 @@
 import Link from "next/link";
 import CategoryBadge from "./CategoryBadge";
 import { formatPrice } from "@/lib/format";
+import { haversineKm, formatDistance } from "@/lib/distance";
 import type { ServiceComparison } from "@/lib/types";
+
+/** Расстояние до ближайшей клиники с этой услугой (по офферам), или null. */
+export function nearestKm(
+  service: ServiceComparison,
+  coords: { lat: number; lng: number } | null | undefined,
+): number | null {
+  if (!coords) return null;
+  let best: number | null = null;
+  for (const o of service.offers || []) {
+    if (o.lat == null || o.lng == null) continue;
+    const d = haversineKm(coords.lat, coords.lng, o.lat, o.lng);
+    if (best == null || d < best) best = d;
+  }
+  return best;
+}
 
 export default function ServiceCard({
   service,
   index = 0,
   city = "",
+  userCoords = null,
 }: {
   service: ServiceComparison;
   index?: number;
   city?: string;
+  userCoords?: { lat: number; lng: number } | null;
 }) {
   const spread =
     service.max_price > service.min_price
       ? Math.round(((service.max_price - service.min_price) / service.max_price) * 100)
       : 0;
+  const distKm = nearestKm(service, userCoords);
 
   // Переносим выбранный город на страницу услуги, чтобы фильтр не слетал.
   const href = city
@@ -30,10 +49,24 @@ export default function ServiceCard({
     >
       <div className="flex items-start justify-between gap-3">
         <CategoryBadge category={service.category} />
-        <span className="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-500 ring-1 ring-inset ring-ink-100">
-          {service.offers_count}{" "}
-          {pluralOffers(service.offers_count)}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {distKm != null && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-100"
+              title="До ближайшей клиники с этой услугой"
+            >
+              <svg viewBox="0 0 20 20" fill="none" className="h-3 w-3" aria-hidden>
+                <path d="M10 18s6-5.3 6-10A6 6 0 0 0 4 8c0 4.7 6 10 6 10Z" stroke="currentColor" strokeWidth="1.6" />
+                <circle cx="10" cy="8" r="2" stroke="currentColor" strokeWidth="1.6" />
+              </svg>
+              {formatDistance(distKm)}
+            </span>
+          )}
+          <span className="rounded-full bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-500 ring-1 ring-inset ring-ink-100">
+            {service.offers_count}{" "}
+            {pluralOffers(service.offers_count)}
+          </span>
+        </div>
       </div>
 
       <div>
