@@ -190,7 +190,36 @@ function ItemRow({ item, city }: { item: BasketItem; city: string }) {
             <p className="text-sm font-bold text-brand-700">
               {formatPrice(item.cheapest.price)}
             </p>
-            <p className="text-xs text-ink-500">{item.cheapest.clinic_name}</p>
+            <Link
+              href={`/clinics/${item.cheapest.clinic_id}`}
+              className="text-xs font-medium text-ink-600 underline-offset-2 hover:text-brand-700 hover:underline"
+              title="Страница лаборатории — все услуги, адрес, контакты"
+            >
+              {item.cheapest.clinic_name}
+            </Link>
+            <div className="mt-0.5 flex items-center justify-end gap-x-3">
+              <Link
+                href={`/clinics/${item.cheapest.clinic_id}`}
+                className="text-[11px] font-medium text-brand-700 underline-offset-2 hover:underline"
+              >
+                Лаборатория →
+              </Link>
+              {item.cheapest.lat != null && item.cheapest.lng != null && (
+                <a
+                  href={`https://yandex.ru/maps/?rtext=~${item.cheapest.lat},${item.cheapest.lng}&rtt=auto`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 underline-offset-2 hover:underline"
+                  title="Маршрут до лаборатории (Яндекс.Карты)"
+                >
+                  <svg viewBox="0 0 20 20" fill="none" className="h-3 w-3" aria-hidden>
+                    <path d="M10 18s6-5.3 6-10A6 6 0 1 0 4 8c0 4.7 6 10 6 10Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                    <circle cx="10" cy="8" r="2" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                  Карта
+                </a>
+              )}
+            </div>
           </>
         ) : (
           <p className="text-xs text-ink-400">нет предложений</p>

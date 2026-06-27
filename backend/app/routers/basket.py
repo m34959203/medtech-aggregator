@@ -107,6 +107,7 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
                 "clinic_id": cheapest.clinic_id, "clinic_name": cheapest.clinic_name,
                 "city": cheapest.city, "address": cheapest.address,
                 "phone": cheapest.phone, "price": cheapest.price,
+                "lat": cheapest.lat, "lng": cheapest.lng,
             },
         })
         for o in cmp.offers:

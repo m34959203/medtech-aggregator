@@ -295,6 +295,8 @@ export interface BasketCheapest {
   address: string;
   phone: string;
   price: number;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface BasketItem {
