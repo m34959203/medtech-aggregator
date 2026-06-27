@@ -200,19 +200,23 @@ class Normalizer:
             return None, 0.0
         key = _clean(raw)
         ranked = process.extract(key, list(self.index.keys()),
-                                 scorer=fuzz.token_set_ratio, limit=8)
-        good = [(self.index[mk], sc) for mk, sc, _ in ranked
+                                 scorer=fuzz.token_set_ratio, limit=12)
+        good = [(mk, self.index[mk], sc) for mk, sc, _ in ranked
                 if not _biomat_conflict(raw, self.index[mk].canonical_name)]
         if not good:
             return None, 0.0  # все топ-кандидаты конфликтуют → в очередь, не ложно
-        # tie-break: при почти равном скоре предпочесть совпадение биоматериала
-        # (token_set уравнивает «Глюкоза (кровь)» и «Глюкоза в моче» при сырье «…в моче»).
+        # token_set_ratio уравнивает короткое сырьё со всеми услугами-надмножествами
+        # («ТТГ» = 100% и «ТТГ (тиреотропный гормон)», и «Антитела к рецепторам ТТГ»).
+        # Среди почти равных по token_set выбираем по двум сигналам:
+        #   1) совпадение биоматериала (кровь/моча — иначе «Глюкоза»→«…в моче»);
+        #   2) длино-чувствительный ratio (короткий ключ ближе к атомарной услуге,
+        #      «ттг»↔«ттг тиреотропный гормон», чем к длинному «антитела…ттг»).
         rb = _biomat_class(raw)
-        top = good[0][1]
-        for svc, score in good:
-            if score >= top - 1 and _biomat_class(svc.canonical_name) == rb:
-                return svc, score / 100.0
-        return good[0][0], good[0][1] / 100.0
+        top = good[0][2]
+        near = [g for g in good if g[2] >= top - 2]
+        best = max(near, key=lambda g: (_biomat_class(g[1].canonical_name) == rb,
+                                        fuzz.ratio(key, g[0])))
+        return best[1], best[2] / 100.0
 
     def match(self, raw: str) -> tuple[ServiceCatalog | None, float]:
         """Read-only подбор услуги под сырое имя (fuzzy → семантика) — для корзины-рецепта."""
