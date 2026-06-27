@@ -167,3 +167,31 @@ def test_archive_reprocess_404_when_no_original(db):
     client = TestClient(app)
     rr = client.post(f"/api/ingest/archive/{st['run_id']}/reprocess")
     assert rr.status_code == 404
+
+
+# ── алиас канонов: дубль из справочника вливается в существующий канон ────────
+def test_official_catalog_alias_folds_into_existing_canon(db):
+    """«Глюкоза (кровь)» из официального справочника не плодит дубль, а вливается
+    синонимом в витринный канон «Глюкоза (в крови)» (долг #41/#43)."""
+    from app.ingestion.refcatalog import load_official_catalog
+
+    db.add(ServiceCatalog(canonical_name="Глюкоза (в крови)", category="Анализы",
+                          synonyms=["сахар"], tarificator_code=None, specialty=""))
+    db.commit()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["ID", "Специальность", "TarificatrCode", "Name_ru"])
+    ws.append([1, "Лабораторная диагностика", "B03.016.006", "Глюкоза (кровь)"])
+    bio = io.BytesIO(); wb.save(bio)
+
+    stats = load_official_catalog(db, bio.getvalue())
+    db.commit()
+
+    # нового канона «Глюкоза (кровь)» НЕ создано
+    assert db.query(ServiceCatalog).filter_by(canonical_name="Глюкоза (кровь)").first() is None
+    primary = db.query(ServiceCatalog).filter_by(canonical_name="Глюкоза (в крови)").first()
+    # имя из справочника осело синонимом, код подтянут
+    assert "Глюкоза (кровь)" in primary.synonyms
+    assert primary.tarificator_code == "B03.016.006"
+    assert stats["created"] == 0

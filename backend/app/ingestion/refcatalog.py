@@ -29,6 +29,15 @@ _CATEGORY_BY_SPEC = [
 ]
 
 
+# Имена официального справочника, которые должны влиться в УЖЕ существующий
+# SPECS-канон, а НЕ создавать отдельный дубль (долг #41/#43). Ключ/значение — lower.
+# Напр. справочник зовёт «Глюкоза (кровь)», а витринный канон — «Глюкоза (в крови)».
+_CANON_ALIASES = {
+    "глюкоза (кровь)": "глюкоза (в крови)",
+    "глюкоза (кровь) экспресс": "глюкоза (в крови)",
+}
+
+
 def _category_for(specialty: str, name: str) -> str:
     blob = f"{specialty} {name}".lower()
     for keys, cat in _CATEGORY_BY_SPEC:
@@ -82,6 +91,16 @@ def load_official_catalog(db: Session, path_or_bytes) -> dict:
     created = updated = 0
     for row in rows:
         key = row["name"].lower()
+        # алиас: вливаем в существующий канон вместо создания дубля
+        alias = _CANON_ALIASES.get(key)
+        if alias and alias in existing:
+            svc = existing[alias]
+            if row["name"].lower() not in {s.lower() for s in (svc.synonyms or [])}:
+                svc.synonyms = list(svc.synonyms or []) + [row["name"]]
+            if row["code"] and not svc.tarificator_code:
+                svc.tarificator_code = row["code"]
+            updated += 1
+            continue
         svc = existing.get(key)
         category = _category_for(row["specialty"], row["name"])
         if svc:
