@@ -105,6 +105,48 @@ def _content(data: dict) -> str:
     return (choices[0].get("message") or {}).get("content") or ""
 
 
+def vision_to_text(content: bytes, mime: str = "image/jpeg") -> str:
+    """Транскрипция направления/прайса с изображения мультимодальным Gemini (Vertex).
+
+    Возвращает построчный список услуг как в документе; '' — если провайдер не gemini,
+    нет ключа или ошибка (вызывающий код деградирует на tesseract). Vertex OpenAI-
+    эндпоинт принимает картинку как data-URI в content-частях (image_url)."""
+    if settings.chat_provider != "gemini" or not has_key():
+        return ""
+    import base64
+
+    base, key, model = _endpoint()
+    b64 = base64.b64encode(content).decode("ascii")
+    prompt = (
+        "На изображении — медицинское направление или прайс клиники. "
+        "Выпиши ПОСТРОЧНО названия анализов/услуг ровно как в документе, по одному "
+        "на строку, на языке оригинала (рус/каз/англ). Раскрывай сокращения только "
+        "если они однозначны. НЕ добавляй нумерацию, комментарии, ФИО, даты, шапки, "
+        "печати — только сами услуги. Если услуг нет — верни пустой ответ."
+    )
+    body: dict = {
+        "model": model,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+        ]}],
+        "temperature": 0,
+        "max_tokens": _budget(1024),
+    }
+    _apply_gemini(body)
+    try:
+        resp = httpx.post(
+            f"{base.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json=body,
+            timeout=90.0,
+        )
+        resp.raise_for_status()
+        return _content(resp.json())
+    except Exception:
+        return ""
+
+
 def parse_json_lenient(text: str) -> dict | None:
     """Достаёт первый JSON-объект из ответа (терпит ```-фенсы и пояснения)."""
     if not text:

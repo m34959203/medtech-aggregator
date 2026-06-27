@@ -463,26 +463,27 @@ class Normalizer:
         пациента в заблуждение сильнее, чем честное «не распознано»."""
         floor = settings.reject_floor if floor is None else floor
         sem_floor = settings.semantic_threshold if sem_floor is None else sem_floor
-        svc, conf = self._fuzzy(raw)
+        # Биоматериал-гард: тот же отбор кандидатов, что и в match()/normalize().
+        # _fuzzy брал топ token_set-хит вслепую («Глюкоза»→«Глюкоза в моче», т.к.
+        # «глюкоза» — подстрока обоих), а _prefer_blood лишь резал «в моче» в
+        # несуществующую строку «Глюкоза». _fuzzy_guarded сразу даёт реальную
+        # кровяную услугу «Глюкоза (в крови)» и держит дефолт-кровь.
+        svc, conf = self._fuzzy_guarded(raw)
         if svc and conf >= floor:
             canonical, category = svc.canonical_name, svc.category
-            # guard: дефолт-кровь, если матч уехал в мочевой вариант
-            blood = _prefer_blood(raw, canonical)
-            if blood:
-                canonical = blood
-                alt = self.index.get(_clean(blood))
-                if alt:
-                    category = alt.category
+            service_id = svc.id  # точная привязка: потребитель не переразрешает по
+            # имени (`_clean` схлопывает «Глюкоза (в крови)» и «Глюкоза в моче» в один
+            # ключ «глюкоза» → коллизия индекса возвращала мочевой вариант).
             # guard: мочевой/толерантный/приёмный вариант
             if svc.category == "Анализы":
                 av = _analyte_variant(raw, svc.canonical_name)
                 if av and av.strip().lower() != svc.canonical_name.strip().lower():
-                    canonical = av
+                    canonical, service_id = av, None  # дериватив-вариант ищется по имени
             elif svc.category == "Приём врача":
                 mod = _appt_modifier(raw)
                 if mod and not _appt_modifier(svc.canonical_name):
-                    canonical = _derive_appt_name(svc.canonical_name, mod)
-            return {"canonical": canonical, "category": category,
+                    canonical, service_id = _derive_appt_name(svc.canonical_name, mod), None
+            return {"canonical": canonical, "category": category, "service_id": service_id,
                     "confidence": round(conf, 3), "method": "fuzzy", "status": "matched"}
         # семантика (смысл) — тоже под порогом отказа
         from . import semantic
@@ -492,9 +493,10 @@ class Normalizer:
                 tgt = self.db.get(ServiceCatalog, sid)
                 if tgt:
                     return {"canonical": tgt.canonical_name, "category": tgt.category,
-                            "confidence": round(score, 3), "method": "semantic", "status": "matched"}
+                            "service_id": tgt.id, "confidence": round(score, 3),
+                            "method": "semantic", "status": "matched"}
         # ниже порога — честный отказ, НЕ принудительная привязка
-        return {"canonical": "—", "category": None,
+        return {"canonical": "—", "category": None, "service_id": None,
                 "confidence": round(conf, 3), "method": "none", "status": "unmatched"}
 
     def analyze(self, raw: str, floor: float | None = None,

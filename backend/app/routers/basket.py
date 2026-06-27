@@ -15,11 +15,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from .. import llm
 from ..db import get_db
 from ..ratelimit import rate_limit
 from ..ingestion import ocr
 from ..ingestion.file_parser import _IMAGE_EXT
 from ..ingestion.normalizer import Normalizer, _clean
+from ..models import ServiceCatalog
 from .aggregator import _build_comparison
 
 router = APIRouter(prefix="/api/basket", tags=["basket"])
@@ -54,8 +56,14 @@ def extract_service_names(text: str) -> list[str]:
 def _extract_text_any(filename: str, content: bytes) -> str:
     """Текст из направления: картинка/скан → OCR, PDF → слой или OCR, иначе декод."""
     fn = (filename or "").lower()
-    is_img = fn.endswith(_IMAGE_EXT) or content[:3] == b"\xff\xd8\xff" or content[:8] == b"\x89PNG\r\n\x1a\n"
+    is_png = content[:8] == b"\x89PNG\r\n\x1a\n"
+    is_img = fn.endswith(_IMAGE_EXT) or content[:3] == b"\xff\xd8\xff" or is_png
     if is_img:
+        # Первичный ридер — мультимодальный Gemini (Vertex): на фото/сканах
+        # направлений он читает в разы точнее tesseract. tesseract — fallback.
+        vtxt = llm.vision_to_text(content, "image/png" if is_png else "image/jpeg")
+        if vtxt.strip():
+            return vtxt
         return ocr.image_to_text(content) if ocr.ocr_available() else ""
     if fn.endswith(".pdf") or content[:4] == b"%PDF":
         import pdfplumber
@@ -63,7 +71,16 @@ def _extract_text_any(filename: str, content: bytes) -> str:
         with pdfplumber.open(io.BytesIO(content)) as pdf:
             txt = "\n".join(p.extract_text() or "" for p in pdf.pages)
         if txt.strip():
-            return txt
+            return txt  # есть текстовый слой — vision не нужен
+        # Скан без текста: vision по отрендеренным страницам, иначе tesseract-OCR.
+        try:
+            vtxt = "\n".join(
+                t for t in (llm.vision_to_text(im, "image/png") for im in ocr.pdf_to_images(content)) if t.strip()
+            )
+        except Exception:
+            vtxt = ""
+        if vtxt.strip():
+            return vtxt
         return ocr.pdf_to_text_ocr(content) if ocr.ocr_available() else ""
     return content.decode("utf-8", errors="ignore")
 
@@ -111,7 +128,12 @@ def _recommend(db: Session, names: list[str], city: str | None) -> dict:
             if it["status"] != "matched" or float(it.get("confidence") or 0.0) < _MATCH_FLOOR:
                 unrecognized.append(nm if it["canonical"] in ("—", None) else it["canonical"])
                 continue
-            svc = norm.index.get(_clean(it["canonical"]))
+            # Точная привязка по service_id (match_one даёт его для прямого матча);
+            # имя — fallback для панелей/дериватив-вариантов. index.get(_clean(...))
+            # ненадёжен: «Глюкоза (в крови)» чистится в ключ «глюкоза», перетёртый
+            # мочевым вариантом → возвращался не тот аналит.
+            sid = it.get("service_id")
+            svc = norm.db.get(ServiceCatalog, sid) if sid else norm.index.get(_clean(it["canonical"]))
             if not svc:  # распознано (панель/новое), но в справочнике/ценах нет
                 unrecognized.append(it["canonical"])
                 continue

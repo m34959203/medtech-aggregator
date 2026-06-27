@@ -39,6 +39,19 @@ def image_to_text(content: bytes) -> str:
     return pytesseract.image_to_string(img, lang=_langs())
 
 
+def pdf_to_images(content: bytes, max_pages: int = 5, dpi: int = 200) -> list[bytes]:
+    """Рендер первых страниц PDF в PNG-байты (для распознавания скана через vision)."""
+    import fitz  # PyMuPDF
+
+    out: list[bytes] = []
+    with fitz.open(stream=content, filetype="pdf") as doc:
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            out.append(page.get_pixmap(dpi=dpi).tobytes("png"))
+    return out
+
+
 def pdf_to_text_ocr(content: bytes, max_pages: int = 15, dpi: int = 200) -> str:
     """OCR сканированного PDF: рендерим страницы (PyMuPDF) и распознаём."""
     import fitz  # PyMuPDF
