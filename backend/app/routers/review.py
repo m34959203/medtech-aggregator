@@ -118,18 +118,43 @@ def review_price(price_id: int, body: PriceReviewAction, db: Session = Depends(g
 
 
 # ---- ИИ-разбор очереди (retrieval-injection: справочник = источник истины) ----
-def _ai_candidates(db: Session, raw: str, current_id: int, k: int = 8) -> list[ServiceCatalog]:
-    """Top-K кандидатов справочника под сырое имя (fuzzy) + текущая привязка."""
+def _ai_candidates(db: Session, raw: str, current_id, k: int = 8) -> list[ServiceCatalog]:
+    """Top-K кандидатов справочника под сырое имя — ОБЪЕДИНЕНИЕ сигналов:
+    fuzzy по каноническому имени, fuzzy по синонимам, семантика (эмбеддинги) +
+    текущая привязка. Слабость одного сигнала (fuzzy не видит «ОАК»≈«Общий анализ
+    крови»; семантика путает мед-термины) компенсируется другими — верную услугу
+    в пул вытащит хотя бы один, а финальный выбор делает LLM + verify."""
     cats = db.query(ServiceCatalog).all()
     if not cats:
         return []
-    names = {c.id: c.canonical_name for c in cats}
-    scored = process.extract(raw, names, scorer=fuzz.token_set_ratio, limit=k)
-    ids = [m[2] for m in scored]
-    if current_id and current_id not in ids:
-        ids.append(current_id)
     by_id = {c.id: c for c in cats}
-    return [by_id[i] for i in ids if i in by_id]
+    ordered: list = []  # сохраняем порядок, без дублей
+
+    def _push(cid):
+        if cid in by_id and cid not in ordered:
+            ordered.append(cid)
+
+    # 1) fuzzy по каноническому имени
+    names = {c.id: c.canonical_name for c in cats}
+    for m in process.extract(raw, names, scorer=fuzz.token_set_ratio, limit=k):
+        _push(m[2])
+    # 2) fuzzy по синонимам (аббревиатуры/варианты написания клиник)
+    syn_index = {c.id: " ".join(c.synonyms or []) for c in cats if c.synonyms}
+    if syn_index:
+        for m in process.extract(raw, syn_index, scorer=fuzz.token_set_ratio, limit=max(3, k // 2)):
+            if m[1] >= 60:
+                _push(m[2])
+    # 3) семантика (эмбеддинги) — ловит смысл там, где буквы расходятся
+    try:
+        from ..ingestion import semantic
+        if semantic.available():
+            for sid, _score in semantic.match_topk(db, raw, max(3, k // 2)):
+                _push(sid)
+    except Exception:
+        pass  # семантика опциональна — без неё остаёмся на fuzzy
+    # 4) текущая привязка всегда в пуле (для choice=confirm)
+    _push(current_id)
+    return [by_id[i] for i in ordered]
 
 
 def _ai_decide(raw: str, current: ServiceCatalog, candidates: list[ServiceCatalog]) -> dict | None:
@@ -166,6 +191,25 @@ def _ai_decide(raw: str, current: ServiceCatalog, candidates: list[ServiceCatalo
         sid = None
     return {"action": d.get("action"), "service_id": sid,
             "reason": d.get("reason", ""), "confidence": d.get("confidence")}
+
+
+def _ai_verify_same(raw: str, target: ServiceCatalog) -> bool:
+    """Независимый verify-проход: точно ли raw — ТА ЖЕ услуга, что target.
+
+    Срезает главную ошибку reassign (~40%): ИИ путает услуги по общему слову
+    («Токсокароз IgG»→«Трихомониаз IgG»). Отдельный строгий yes/no с акцентом на
+    биоматериал/метод/аналит/панель. По умолчанию НЕТ (без явного да — не применяем)."""
+    prompt = (
+        "Ты — медицинский эксперт-нормализатор. Ответь, описывают ли две строки "
+        "ОДНУ И ТУ ЖЕ медицинскую услугу/анализ. Будь строг: различия по аналиту, "
+        "биоматериалу (кровь/моча/сыворотка), методу, составу панели или органу — "
+        "это РАЗНЫЕ услуги.\n"
+        f'Строка из прайса: "{raw}"\n'
+        f'Услуга справочника: "{target.canonical_name}"\n'
+        'Ответ СТРОГО JSON: {"same": true|false, "reason": "кратко"}'
+    )
+    d = llm.json_completion(prompt)
+    return bool(d and d.get("same") is True)
 
 
 class AiResolveBody(BaseModel):
@@ -212,15 +256,113 @@ def ai_resolve(body: AiResolveBody, db: Session = Depends(get_db)):
             t = db.get(ServiceCatalog, sid)
             prop["target_name"] = t.canonical_name if t else None
         if body.apply and action in body.auto_actions and conf >= body.min_confidence:
-            mapped = "reject" if action == "junk" else action
-            if _apply_review(db, price, mapped, sid):
-                applied += 1
-                prop["applied"] = True
+            # reassign — только после независимого verify (срез 40%-ошибки путаницы)
+            ok_to_apply = True
+            if action == "reassign":
+                t = db.get(ServiceCatalog, sid) if sid else None
+                ok_to_apply = bool(t) and _ai_verify_same(price.raw_name, t)
+                prop["verified"] = ok_to_apply
+            if ok_to_apply:
+                mapped = "reject" if action == "junk" else action
+                if _apply_review(db, price, mapped, sid):
+                    applied += 1
+                    prop["applied"] = True
         proposals.append(prop)
     if body.apply:
         db.commit()
         remaining = db.query(Price).filter(Price.match_confidence < threshold).count()
     return {"processed": len(rows), "applied": applied, "remaining": remaining, "proposals": proposals}
+
+
+# ---- Перепроверка ПОДОЗРИТЕЛЬНЫХ привязок (высокая уверенность, но мимо) ----
+def _suspect_bindings(db: Session, threshold: float, floor: float, scan_limit: int, offset: int):
+    """Привязки с conf ≥ threshold, но семантически далёкие от своего канона.
+
+    Сигнал — низкий косинус(raw, canonical): ошибочный reassign/fuzzy выставил
+    высокую уверенность, и в обычную очередь (conf<threshold) такая запись не
+    попадает. Эмбеддинги дешёвы → батч-скан; сам выбор цели — за LLM в recheck.
+    Возвращает [(price, current_service, bound_cos)] по возрастанию сходства."""
+    from ..ingestion import semantic
+    if not semantic.available():
+        return []
+    rows = (
+        db.query(Price, ServiceCatalog)
+        .join(ServiceCatalog, Price.service_id == ServiceCatalog.id)
+        .filter(Price.match_confidence >= threshold)
+        .order_by(Price.id)
+        .offset(max(0, offset))
+        .limit(max(1, scan_limit))
+        .all()
+    )
+    if not rows:
+        return []
+    import numpy as np
+    raw_vecs = semantic.embed([p.raw_name for p, _ in rows])
+    can_vecs = semantic.embed([s.canonical_name for _, s in rows])
+    out = []
+    for (p, s), rv, cv in zip(rows, raw_vecs, can_vecs):
+        rv, cv = np.array(rv), np.array(cv)
+        denom = (rv @ rv) ** 0.5 * (cv @ cv) ** 0.5
+        bound_cos = float(rv @ cv / denom) if denom else 0.0
+        if bound_cos < floor:
+            out.append((p, s, bound_cos))
+    out.sort(key=lambda t: t[2])
+    return out
+
+
+class RecheckBody(BaseModel):
+    scan_limit: int = 300       # сколько привязок просканировать эмбеддингами за вызов
+    offset: int = 0             # для прохода по всей базе батчами
+    suspect_floor: float = 0.55 # ниже косинуса raw↔canonical — подозрительно
+    apply: bool = False         # применять ли уверенные reassign (после verify)
+    min_confidence: float = 0.8
+    max_llm: int = 40           # потолок LLM-вызовов за один проход (стоимость/время)
+
+
+@router.post("/recheck")
+def recheck_bindings(body: RecheckBody, db: Session = Depends(get_db)):
+    """Найти и (опц.) починить ОШИБОЧНЫЕ привязки с высокой уверенностью —
+    которых нет в обычной очереди. Дёшево детектим эмбеддингами, target выбирает
+    LLM из усиленного пула кандидатов, reassign применяется ТОЛЬКО после verify.
+    Идемпотентно и безопасно: ложный подозреваемый просто подтверждается."""
+    threshold = settings.match_confidence_threshold
+    suspects = _suspect_bindings(db, threshold, body.suspect_floor, body.scan_limit, body.offset)
+    proposals: list[dict] = []
+    applied = 0
+    llm_used = 0
+    for price, current, bound_cos in suspects:
+        if llm_used >= body.max_llm:
+            break
+        cands = _ai_candidates(db, price.raw_name, current.id)
+        decision = _ai_decide(price.raw_name, current, cands)
+        llm_used += 1
+        if not decision:
+            proposals.append({"price_id": price.id, "raw_name": price.raw_name,
+                              "bound_cos": round(bound_cos, 3), "action": "skip",
+                              "reason": "ИИ недоступен/не ответил"})
+            continue
+        action = decision.get("action")
+        sid = decision.get("service_id")
+        conf = float(decision.get("confidence") or 0.0)
+        t = db.get(ServiceCatalog, sid) if sid else None
+        prop = {"price_id": price.id, "raw_name": price.raw_name,
+                "bound_cos": round(bound_cos, 3), "current_name": current.canonical_name,
+                "action": action, "service_id": sid,
+                "target_name": t.canonical_name if t else None,
+                "reason": decision.get("reason", ""), "confidence": conf}
+        if body.apply and action == "reassign" and t and conf >= body.min_confidence:
+            llm_used += 1
+            verified = _ai_verify_same(price.raw_name, t)
+            prop["verified"] = verified
+            if verified and _apply_review(db, price, "reassign", sid):
+                applied += 1
+                prop["applied"] = True
+        proposals.append(prop)
+    if body.apply:
+        db.commit()
+    return {"scanned_from": body.offset, "scan_limit": body.scan_limit,
+            "suspects": len(suspects), "llm_used": llm_used,
+            "applied": applied, "proposals": proposals}
 
 
 class ReportStatus(BaseModel):

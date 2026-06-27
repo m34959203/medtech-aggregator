@@ -59,3 +59,15 @@ def test_match_used_by_basket_path(db):
     n = Normalizer(db)
     svc, score = n.match("ультразвук почек")
     assert svc and svc.canonical_name == "УЗИ почек"
+
+
+def test_match_returns_uuid_not_int(db):
+    """Регрессия uuid-миграции: match/​match_topk возвращают uuid сервиса,
+    а не int(uuid) — иначе db.get падает на PG («cannot cast numeric to uuid»)."""
+    import uuid as _uuid
+    sid, _ = semantic.match(db, "кровь на сахар")
+    assert isinstance(sid, _uuid.UUID)
+    assert db.get(ServiceCatalog, sid) is not None  # резолвится, не падает
+    top = semantic.match_topk(db, "кровь на сахар", 3)
+    assert top and all(isinstance(t[0], _uuid.UUID) for t in top)
+    assert _canon(db, top[0][0]) == "Глюкоза (в крови)"

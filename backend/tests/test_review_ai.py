@@ -73,6 +73,104 @@ def test_ai_resolve_applies_confident_decisions(client, monkeypatch):
     db.close()
 
 
+def test_recheck_detects_and_fixes_suspect_binding(monkeypatch):
+    """Ошибочная привязка с conf=1.0 (нет в обычной очереди): recheck детектит её
+    по низкому косинусу raw↔canonical, LLM-reassign применяется ТОЛЬКО после verify."""
+    from app.config import settings as _settings
+    from app.ingestion import semantic
+    monkeypatch.setattr(_settings, "semantic_enabled", True)
+    semantic.reset_memory()
+    try:
+        semantic.embed(["проверка"])
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"модель эмбеддингов недоступна: {type(e).__name__}")
+
+    engine = create_engine("sqlite:///:memory:",
+                           connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    TS = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    s = TS()
+    correct = ServiceCatalog(canonical_name="Протромбин, МНО (протромбиновое время)",
+                             category="Анализы", synonyms=["коагулограмма", "ПТИ"])
+    wrong = ServiceCatalog(canonical_name="Глюкоза (в крови)", category="Анализы", synonyms=[])
+    s.add_all([correct, wrong])
+    cl = Clinic(name="Лаб", city="Алматы")
+    s.add(cl); s.flush()
+    # привязана к НЕВЕРНОЙ услуге, но с высокой уверенностью → вне обычной очереди
+    s.add(Price(id=20, clinic_id=cl.id, service_id=wrong.id,
+                raw_name="Коагулограмма №1 (протромбин по Квику, МНО)",
+                price=1750, currency="KZT", source_type="web_scrape", match_confidence=1.0))
+    s.commit()
+    correct_id = correct.id
+    s.close()
+
+    def _ov():
+        db = TS()
+        try:
+            yield db
+        finally:
+            db.close()
+    app.dependency_overrides[get_db] = _ov
+
+    # LLM: предлагает reassign на верную услугу; verify подтверждает
+    def fake_decide(raw, current, candidates):
+        target = next((c for c in candidates if "Протромбин" in c.canonical_name), None)
+        return {"action": "reassign", "service_id": target.id if target else None,
+                "reason": "та же услуга (коагулограмма/протромбин/МНО)", "confidence": 0.95}
+    monkeypatch.setattr("app.routers.review._ai_decide", fake_decide)
+    monkeypatch.setattr("app.routers.review._ai_verify_same", lambda raw, target: True)
+
+    c = TestClient(app)
+    r = c.post("/api/review/recheck", json={"apply": True, "suspect_floor": 0.55}).json()
+    assert r["suspects"] >= 1                       # подозрительная привязка найдена
+    assert r["applied"] == 1                        # и починена (после verify)
+    db = TS()
+    assert db.get(Price, 20).service_id == correct_id   # переназначена на верную
+    db.close()
+    app.dependency_overrides.clear()
+
+
+def test_recheck_verify_blocks_bad_reassign(monkeypatch):
+    """verify=False (ИИ спутал по общему слову) — reassign НЕ применяется."""
+    from app.config import settings as _settings
+    from app.ingestion import semantic
+    monkeypatch.setattr(_settings, "semantic_enabled", True)
+    semantic.reset_memory()
+    try:
+        semantic.embed(["проверка"])
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"модель эмбеддингов недоступна: {type(e).__name__}")
+
+    engine = create_engine("sqlite:///:memory:",
+                           connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    TS = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    s = TS()
+    a = ServiceCatalog(canonical_name="Токсокароз IgG", category="Анализы", synonyms=[])
+    b = ServiceCatalog(canonical_name="УЗИ щитовидной железы", category="УЗИ", synonyms=[])
+    s.add_all([a, b]); cl = Clinic(name="Лаб", city="Алматы"); s.add(cl); s.flush()
+    s.add(Price(id=30, clinic_id=cl.id, service_id=b.id, raw_name="Антитела Токсокароз IgG",
+                price=2000, currency="KZT", source_type="web_scrape", match_confidence=1.0))
+    s.commit(); a_id = a.id; s.close()
+
+    def _ov():
+        db = TS()
+        try:
+            yield db
+        finally:
+            db.close()
+    app.dependency_overrides[get_db] = _ov
+    monkeypatch.setattr("app.routers.review._ai_decide",
+                        lambda raw, cur, cands: {"action": "reassign", "service_id": a_id,
+                                                 "reason": "x", "confidence": 0.95})
+    monkeypatch.setattr("app.routers.review._ai_verify_same", lambda raw, target: False)
+    c = TestClient(app)
+    r = c.post("/api/review/recheck", json={"apply": True, "suspect_floor": 0.55}).json()
+    assert r["applied"] == 0  # verify отклонил — привязка не тронута
+    db = TS(); assert db.get(Price, 30).service_id != a_id; db.close()
+    app.dependency_overrides.clear()
+
+
 def test_review_price_new_action_creates_service(client):
     """Действие 'new' создаёт услугу из сырого имени и переназначает."""
     before = client.Session()

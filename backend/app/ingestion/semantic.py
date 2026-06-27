@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import threading
+import uuid
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -108,8 +109,13 @@ def _ensure_mem(db: Session) -> None:
 
 
 # --- Поиск ---
-def match(db: Session, query: str) -> tuple[int | None, float]:
-    """Семантически ближайшая услуга к запросу. → (service_id|None, score 0..1)."""
+def match(db: Session, query: str) -> tuple[uuid.UUID | None, float]:
+    """Семантически ближайшая услуга к запросу. → (service_id|None, score 0..1).
+
+    service_id — uuid (§2.2). ВАЖНО: не приводить к int — после uuid-миграции
+    `int(uuid)` даёт огромное число, и `db.get(ServiceCatalog, …)` падает на PG
+    («cannot cast numeric to uuid»), отключая семантический тир нормализации.
+    """
     if not available() or not (query or "").strip():
         return None, 0.0
     qv = embed([query])[0]
@@ -123,7 +129,8 @@ def match(db: Session, query: str) -> tuple[int | None, float]:
         ).first()
         if not row:
             return None, 0.0
-        return int(row[0]), float(row[1])
+        sid = row[0]
+        return (sid if isinstance(sid, uuid.UUID) else uuid.UUID(str(sid))), float(row[1])
     # in-process
     import numpy as np
     _ensure_mem(db)
@@ -132,6 +139,33 @@ def match(db: Session, query: str) -> tuple[int | None, float]:
     sims = _mem["mat"] @ qv  # косинус (всё нормализовано)
     i = int(np.argmax(sims))
     return _mem["ids"][i], float(sims[i])
+
+
+def match_topk(db: Session, query: str, k: int = 8) -> list[tuple[uuid.UUID, float]]:
+    """Top-K семантически близких услуг → [(service_id uuid, score 0..1)] по убыванию."""
+    if not available() or not (query or "").strip():
+        return []
+    qv = embed([query])[0]
+    if _is_pg(db):
+        rows = db.execute(
+            text(
+                "SELECT service_id, 1 - (embedding <=> (:q)::vector) AS score "
+                "FROM service_embeddings ORDER BY embedding <=> (:q)::vector LIMIT :k"
+            ),
+            {"q": _vec_literal(qv), "k": int(k)},
+        ).all()
+        out = []
+        for r in rows:
+            sid = r[0]
+            out.append(((sid if isinstance(sid, uuid.UUID) else uuid.UUID(str(sid))), float(r[1])))
+        return out
+    import numpy as np
+    _ensure_mem(db)
+    if not _mem or not _mem["ids"]:
+        return []
+    sims = _mem["mat"] @ qv
+    idx = np.argsort(sims)[::-1][:k]
+    return [(_mem["ids"][int(i)], float(sims[int(i)])) for i in idx]
 
 
 def reset_memory() -> None:
