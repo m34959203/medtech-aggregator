@@ -18,12 +18,17 @@ from ..ingestion import category as category_enum
 from ..ingestion import ontology, variants
 from ..models import Clinic, Price, PriceHistory, ServiceCatalog
 from ..schemas import (
+    ClinicCompareOut,
     CollectedRecord,
+    CompareCell,
+    CompareColumn,
     PriceOffer,
     ServiceComparison,
+    ServiceMini,
     ServiceOut,
     ServiceVariant,
 )
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["aggregator"])
 
@@ -265,6 +270,154 @@ def compare(
         db, service, city, max_price, sort, min_price=min_price, min_rating=min_rating,
         online_booking=online_booking, user_lat=user_lat, user_lng=user_lng,
         with_variants=True,
+    )
+
+
+def _fresh_cheapest_by_clinic(db: Session, service_id) -> dict:
+    """Для услуги — {clinic_id: (price, clinic)} с самой дешёвой СВЕЖЕЙ ценой клиники."""
+    cutoff = datetime.utcnow() - timedelta(days=settings.price_freshness_days)
+    date_cutoff = cutoff.date()
+    out: dict = {}
+    rows = (
+        db.query(Price, Clinic)
+        .join(Clinic, Price.clinic_id == Clinic.id)
+        .filter(Price.service_id == service_id)
+        .all()
+    )
+    for price, clinic in rows:
+        fresh = getattr(price, "is_active", True) is not False
+        pa = getattr(price, "parsed_at", None)
+        if pa is not None:
+            fresh = fresh and pa >= cutoff
+        elif price.valid_from is not None:
+            fresh = fresh and price.valid_from >= date_cutoff
+        if not fresh:
+            continue
+        cur = out.get(clinic.id)
+        if cur is None or float(price.price) < float(cur[0].price):
+            out[clinic.id] = (price, clinic)
+    return out
+
+
+class ClinicCompareIn(BaseModel):
+    service_ids: list[uuid.UUID]
+    clinic_ids: list[uuid.UUID] | None = None   # 2–4 клиники; пусто → автоподбор
+    city: str | None = None
+    user_lat: float | None = None
+    user_lng: float | None = None
+    require_all: bool = False                    # только клиники со ВСЕМИ услугами
+
+
+@router.post("/compare-clinics", response_model=ClinicCompareOut)
+def compare_clinics(body: ClinicCompareIn, db: Session = Depends(get_db)):
+    """§3.4: сравнительная таблица клиник по набору услуг (цена/итог/экономия/
+    расстояние/рейтинг/свежесть/источник) + рекомендации. «Не найдено» вместо 0."""
+    # услуги: валидируем, дедуп, сохраняем порядок (≤8)
+    seen, services = set(), []
+    for sid in body.service_ids[:8]:
+        if sid in seen:
+            continue
+        svc = db.get(ServiceCatalog, sid)
+        if svc:
+            seen.add(sid)
+            services.append(svc)
+    if not services:
+        raise HTTPException(422, "Не передано ни одной валидной услуги")
+
+    # {service_id: {clinic_id: (price, clinic)}}
+    by_service = {s.id: _fresh_cheapest_by_clinic(db, s.id) for s in services}
+
+    # пул клиник: либо заданные, либо автоподбор (покрытие↓, затем суммарная цена↑)
+    if body.clinic_ids:
+        clinic_ids = list(dict.fromkeys(body.clinic_ids))[:4]
+    else:
+        coverage: dict = {}
+        for sid, m in by_service.items():
+            for cid, (price, clinic) in m.items():
+                if body.city and clinic.city != body.city:
+                    continue
+                c = coverage.setdefault(cid, {"cov": 0, "total": 0.0})
+                c["cov"] += 1
+                c["total"] += float(price.price)
+        ranked = sorted(coverage.items(), key=lambda kv: (-kv[1]["cov"], kv[1]["total"]))
+        clinic_ids = [cid for cid, _ in ranked[:4]]
+    if not clinic_ids:
+        return ClinicCompareOut(services=[ServiceMini(service_id=s.id, canonical_name=s.canonical_name) for s in services],
+                                clinics=[], max_total=0.0, recommendations={})
+
+    # лучшая (минимальная) цена по каждой услуге среди выбранных клиник → 🏆
+    best_price = {}
+    for s in services:
+        prices = [float(by_service[s.id][cid][0].price) for cid in clinic_ids if cid in by_service[s.id]]
+        best_price[s.id] = min(prices) if prices else None
+
+    now = datetime.utcnow()
+    columns: list[CompareColumn] = []
+    for cid in clinic_ids:
+        clinic = db.get(Clinic, cid)
+        if not clinic:
+            continue
+        cells, total, found = [], 0.0, 0
+        for s in services:
+            hit = by_service[s.id].get(cid)
+            if hit:
+                price, _ = hit
+                p = float(price.price)
+                total += p
+                found += 1
+                pa = getattr(price, "parsed_at", None)
+                fdays = (now - pa).days if pa else None
+                cells.append(CompareCell(
+                    service_id=s.id, found=True, price=p,
+                    is_best=best_price[s.id] is not None and abs(p - best_price[s.id]) < 1e-6,
+                    source_url=getattr(price, "source_url", "") or clinic.website or "",
+                    source_type=price.source_type, parsed_at=pa, freshness_days=fdays,
+                ))
+            else:
+                cells.append(CompareCell(service_id=s.id, found=False))
+        dist = None
+        if body.user_lat is not None and body.user_lng is not None and clinic.lat is not None and clinic.lng is not None:
+            dist = round(_haversine(body.user_lat, body.user_lng, clinic.lat, clinic.lng), 1)
+        columns.append(CompareColumn(
+            clinic_id=clinic.id, clinic_name=clinic.name, city=clinic.city or "",
+            address=clinic.address or "", phone=clinic.phone or "",
+            lat=clinic.lat, lng=clinic.lng, rating=clinic.rating,
+            online_booking=clinic.online_booking, working_hours=clinic.working_hours or "",
+            website=clinic.website or "", distance_km=dist, cells=cells,
+            total=round(total, 2), found_count=found, covers_all=(found == len(services)),
+        ))
+
+    if body.require_all:
+        columns = [c for c in columns if c.covers_all]
+
+    max_total = max((c.total for c in columns), default=0.0)
+    for c in columns:
+        c.savings_vs_max = round(max_total - c.total, 2)
+
+    # рекомендации: дешевле / ближе / лучший баланс
+    rec = {}
+    full = [c for c in columns if c.covers_all] or columns
+    if full:
+        cheapest = min(full, key=lambda c: c.total)
+        rec["cheapest"] = {"clinic_id": str(cheapest.clinic_id), "clinic_name": cheapest.clinic_name,
+                           "label": f"Самый дешёвый набор — {int(cheapest.total)} ₸"}
+    with_dist = [c for c in columns if c.distance_km is not None]
+    if with_dist:
+        nearest = min(with_dist, key=lambda c: c.distance_km)
+        rec["nearest"] = {"clinic_id": str(nearest.clinic_id), "clinic_name": nearest.clinic_name,
+                          "label": f"Ближайшая — {nearest.distance_km} км"}
+        # лучший баланс: нормированные цена и расстояние (только среди покрывающих набор)
+        pool = [c for c in (full if any(c.distance_km is not None for c in full) else columns)
+                if c.distance_km is not None]
+        if pool and max_total > 0:
+            dmax = max(c.distance_km for c in pool) or 1.0
+            balanced = min(pool, key=lambda c: 0.6 * (c.total / max_total) + 0.4 * (c.distance_km / dmax))
+            rec["best_balance"] = {"clinic_id": str(balanced.clinic_id), "clinic_name": balanced.clinic_name,
+                                   "label": "Лучший баланс цены и расстояния"}
+
+    return ClinicCompareOut(
+        services=[ServiceMini(service_id=s.id, canonical_name=s.canonical_name) for s in services],
+        clinics=columns, max_total=round(max_total, 2), recommendations=rec,
     )
 
 

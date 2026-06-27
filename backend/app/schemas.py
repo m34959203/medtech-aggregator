@@ -133,6 +133,53 @@ class ServiceComparison(BaseModel):
     ontology: dict | None = None
 
 
+# --- §3.4: сравнительная таблица клиник по выбранным услугам ---
+class CompareCell(BaseModel):
+    """Ячейка таблицы: цена услуги в клинике (или «не найдено»)."""
+    service_id: uuid.UUID
+    found: bool
+    price: float | None = None
+    is_best: bool = False          # лучшая цена по этой услуге среди клиник → 🏆
+    source_url: str = ""
+    source_type: str = ""
+    parsed_at: datetime | None = None
+    freshness_days: int | None = None  # сколько дней назад обновлено
+
+
+class CompareColumn(BaseModel):
+    """Колонка таблицы — одна клиника со всеми её данными."""
+    clinic_id: uuid.UUID
+    clinic_name: str
+    city: str = ""
+    address: str = ""
+    phone: str = ""
+    lat: float | None = None
+    lng: float | None = None
+    rating: float | None = None
+    online_booking: bool | None = None
+    working_hours: str = ""
+    website: str = ""
+    distance_km: float | None = None
+    cells: list[CompareCell]       # по одной на каждую запрошенную услугу (в порядке services)
+    total: float                   # сумма найденных цен
+    found_count: int
+    covers_all: bool
+    savings_vs_max: float = 0.0    # экономия относительно самой дорогой клиники набора
+
+
+class ServiceMini(BaseModel):
+    service_id: uuid.UUID
+    canonical_name: str
+
+
+class ClinicCompareOut(BaseModel):
+    services: list[ServiceMini]
+    clinics: list[CompareColumn]
+    max_total: float = 0.0
+    # {cheapest, nearest, best_balance}: clinic_id|None + краткая подпись
+    recommendations: dict = {}
+
+
 class IngestionRunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

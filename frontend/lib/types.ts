@@ -39,6 +39,69 @@ export interface ServiceVariant {
   min_price: number;
 }
 
+// --- §3.4: сравнительная таблица клиник по выбранным услугам ---
+export interface CompareCell {
+  service_id: string;
+  found: boolean;
+  price: number | null;
+  is_best: boolean; // лучшая цена по услуге среди клиник → 🏆
+  source_url?: string;
+  source_type?: string;
+  parsed_at?: string | null;
+  freshness_days?: number | null;
+}
+
+export interface CompareColumn {
+  clinic_id: string;
+  clinic_name: string;
+  city: string;
+  address: string;
+  phone: string;
+  lat: number | null;
+  lng: number | null;
+  rating: number | null;
+  online_booking: boolean | null;
+  working_hours: string;
+  website: string;
+  distance_km: number | null;
+  cells: CompareCell[]; // по одной на каждую услугу из services (в порядке)
+  total: number;
+  found_count: number;
+  covers_all: boolean;
+  savings_vs_max: number;
+}
+
+export interface ServiceMini {
+  service_id: string;
+  canonical_name: string;
+}
+
+export interface CompareRecommendation {
+  clinic_id: string;
+  clinic_name: string;
+  label: string;
+}
+
+export interface ClinicComparison {
+  services: ServiceMini[];
+  clinics: CompareColumn[];
+  max_total: number;
+  recommendations: {
+    cheapest?: CompareRecommendation;
+    nearest?: CompareRecommendation;
+    best_balance?: CompareRecommendation;
+  };
+}
+
+export interface ClinicCompareRequest {
+  service_ids: string[];
+  clinic_ids?: string[] | null;
+  city?: string | null;
+  user_lat?: number | null;
+  user_lng?: number | null;
+  require_all?: boolean;
+}
+
 export interface ServiceAttributes {
   base_key?: string;
   visit?: "primary" | "repeat" | "online" | "pediatric" | null;
