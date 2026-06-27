@@ -11,10 +11,10 @@ import {
 import { formatPrice } from "@/lib/format";
 import type { BasketItem, BasketResult } from "@/lib/types";
 
-const SAMPLE = "Направление на анализы:\n1. Общий анализ крови\n2. Глюкоза\n3. ТТГ\n4. Витамин D";
+const SAMPLE = "Например:\nОбщий анализ крови\nГлюкоза\nТТГ\nВитамин D";
 
 export default function RecipePage() {
-  const [text, setText] = useState(SAMPLE);
+  const [text, setText] = useState("");
   const [city, setCity] = useState("");
   const [cities, setCities] = useState<string[]>([]);
   const [result, setResult] = useState<BasketResult | null>(null);
@@ -61,6 +61,7 @@ export default function RecipePage() {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
+            placeholder={SAMPLE}
             rows={8}
             className="w-full resize-y rounded-2xl border border-ink-200 bg-white p-4 text-sm text-ink-800 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
           />
@@ -80,7 +81,7 @@ export default function RecipePage() {
             <button
               type="button"
               onClick={() => run(recommendBasket({ text, city: city || undefined }))}
-              disabled={loading}
+              disabled={loading || !text.trim()}
               className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow transition hover:bg-brand-700 disabled:opacity-50"
             >
               {loading ? "Считаю…" : "Найти выгодно"}
