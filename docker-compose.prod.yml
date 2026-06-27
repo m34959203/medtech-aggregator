@@ -36,9 +36,16 @@ services:
       MATCH_CONFIDENCE_THRESHOLD: "0.78"
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
-      # Чат-помощник: провайдер LLM (auto/alem/groq). AlemLLM — KZ-модель.
+      # Чат-помощник/нормализатор: провайдер LLM (auto/gemini/alem/groq).
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       ALEM_API_KEY: ${ALEM_API_KEY:-}
+      # Gemini через Vertex AI (service-account). SA монтируется ниже read-only,
+      # путь внутри контейнера фиксирован — /run/secrets/gemini-sa.json.
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      GCP_PROJECT: ${GCP_PROJECT:-}
+      GCP_LOCATION: ${GCP_LOCATION:-us-central1}
       # Безопасность: токен админ-зоны (пусто → админ закрыт), cookie только по HTTPS.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
@@ -49,6 +56,8 @@ services:
       WA_INBOUND_WEBHOOK_SECRET: ${WA_INBOUND_WEBHOOK_SECRET:-}
     volumes:
       - medtech_data:/data          # загрузки/легаси-SQLite (на случай миграции данных)
+      # Vertex SA (read-only) с хоста; путь = GOOGLE_APPLICATION_CREDENTIALS.
+      - ${GEMINI_SA_HOST_PATH:-/home/ubuntu/secrets/gemini-sa-zhezu-052026.json}:/run/secrets/gemini-sa.json:ro
     depends_on:
       medtech-db:
         condition: service_healthy

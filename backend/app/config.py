@@ -46,12 +46,26 @@ class Settings(BaseSettings):
     semantic_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     semantic_threshold: float = 0.72  # минимальная косинусная близость для принятия
 
-    # Чат-помощник. Провайдер OpenAI-совместимый: "alem" (AlemLLM, KZ) или "groq".
-    # По умолчанию авто: если задан alem_api_key — alem, иначе groq.
-    llm_provider: str = "auto"  # auto / alem / groq
+    # Чат-помощник/нормализатор. Провайдер OpenAI-совместимый: "gemini" / "alem" / "groq".
+    # По умолчанию авто: gemini (если ключ) → alem → groq.
+    llm_provider: str = "auto"  # auto / gemini / alem / groq
     alem_api_key: str = ""
     alem_base_url: str = "https://llm.alem.ai/v1"
     alem_model: str = "alemllm"
+    # Gemini через OpenAI-совместимый эндпоинт (надёжнее AlemLLM на reasoning/JSON).
+    # Два режима авторизации: Vertex AI (service-account) — приоритет; иначе AI Studio (ключ).
+    gemini_api_key: str = ""   # AI Studio (статический ключ), фолбэк
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    gemini_model: str = "gemini-2.5-flash"
+    # Vertex AI: если задан SA-файл + проект — gemini идёт через Vertex (SA-токен).
+    google_application_credentials: str = ""  # путь к SA JSON
+    gcp_project: str = ""
+    gcp_location: str = "us-central1"
+
+    @property
+    def gemini_is_vertex(self) -> bool:
+        """Gemini через Vertex (SA), а не AI Studio-ключ."""
+        return bool(self.google_application_credentials and self.gcp_project)
 
     # WhatsApp-туннель (Baileys-микросервис wa-gateway). Backend ходит к нему по
     # внутренней docker-сети с секретом; фронт/админ — только через наш прокси.
@@ -63,8 +77,10 @@ class Settings(BaseSettings):
     @property
     def chat_provider(self) -> str:
         """Фактический провайдер чата с учётом 'auto' и наличия ключей."""
-        if self.llm_provider in ("alem", "groq"):
+        if self.llm_provider in ("gemini", "alem", "groq"):
             return self.llm_provider
+        if self.gemini_api_key or self.gemini_is_vertex:
+            return "gemini"
         return "alem" if self.alem_api_key else "groq"
 
 

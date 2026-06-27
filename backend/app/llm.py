@@ -1,26 +1,63 @@
-"""Единый доступ к LLM (OpenAI-совместимый): AlemLLM / Groq.
+"""Единый доступ к LLM (OpenAI-совместимый): Gemini / AlemLLM / Groq.
 
 Провайдер выбирается через settings.chat_provider. Используется и чат-помощником,
 и LLM-шагом нормализатора. Tool-calling не применяем (AlemLLM не держит).
+Gemini — через OpenAI-совместимый эндпоинт (надёжнее на reasoning/JSON).
 """
 from __future__ import annotations
 
 import json
 import re
+import threading
 
 import httpx
 
 from .config import settings
 
+# Провайдеры с поддержкой строгого JSON (response_format=json_object).
+_JSON_PROVIDERS = {"gemini", "groq"}
+
+# Vertex AI: SA-учётка кэшируется, токен (TTL ~1ч) обновляется при истечении.
+_vertex_creds = None
+_vertex_lock = threading.Lock()
+
+
+def _vertex_token() -> str:
+    """Свежий OAuth-токен из service-account для Vertex (ленивая загрузка + refresh)."""
+    global _vertex_creds
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+
+    with _vertex_lock:
+        if _vertex_creds is None:
+            _vertex_creds = service_account.Credentials.from_service_account_file(
+                settings.google_application_credentials,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+        if not _vertex_creds.valid:
+            _vertex_creds.refresh(Request())
+        return _vertex_creds.token
+
 
 def _endpoint() -> tuple[str, str, str]:
-    """(base_url, api_key, model) активного провайдера."""
-    if settings.chat_provider == "alem":
+    """(base_url, bearer, model) активного провайдера. Vertex минтит SA-токен."""
+    p = settings.chat_provider
+    if p == "gemini":
+        if settings.gemini_is_vertex:
+            loc, proj = settings.gcp_location, settings.gcp_project
+            base = (f"https://{loc}-aiplatform.googleapis.com/v1beta1/projects/{proj}"
+                    f"/locations/{loc}/endpoints/openapi")
+            return base, _vertex_token(), f"google/{settings.gemini_model}"
+        return settings.gemini_base_url, settings.gemini_api_key, settings.gemini_model
+    if p == "alem":
         return settings.alem_base_url, settings.alem_api_key, settings.alem_model
     return "https://api.groq.com/openai/v1", settings.groq_api_key, settings.groq_model
 
 
 def has_key() -> bool:
+    # Для Vertex не минтим токен ради проверки — достаточно наличия SA+проекта.
+    if settings.chat_provider == "gemini" and settings.gemini_is_vertex:
+        return True
     return bool(_endpoint()[1])
 
 
@@ -30,11 +67,32 @@ def chat(messages: list[dict], temperature: float = 0.3, max_tokens: int = 700) 
     resp = httpx.post(
         f"{base.rstrip('/')}/chat/completions",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
-        timeout=60.0,
+        json={"model": model, "messages": messages, "temperature": temperature,
+              "max_tokens": _budget(max_tokens)},
+        timeout=90.0,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"] or ""
+    return _content(resp.json())
+
+
+def _budget(max_tokens: int) -> int:
+    """Gemini 2.5 — thinking-модель: резервирует ~100–200 токенов на «размышление»
+    ДО контента. При малом лимите ответ пустой (finish_reason=length). Поднимаем
+    пол до 1024 для Gemini, чтобы хватило и на thinking, и на сам JSON/текст."""
+    if settings.chat_provider == "gemini":
+        return max(max_tokens, 1024)
+    return max_tokens
+
+
+def _content(data: dict) -> str:
+    """Безопасно достать content. Vertex отдаёт ошибки списком [{...}]; усечённый
+    thinking-ответ — choice без message. В обоих случаях возвращаем ''."""
+    if not isinstance(data, dict):
+        return ""
+    choices = data.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        return ""
+    return (choices[0].get("message") or {}).get("content") or ""
 
 
 def parse_json_lenient(text: str) -> dict | None:
@@ -64,18 +122,18 @@ def json_completion(prompt: str, max_tokens: int = 300) -> dict | None:
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
-        "max_tokens": max_tokens,
+        "max_tokens": _budget(max_tokens),
     }
-    if settings.chat_provider == "groq":
+    if settings.chat_provider in _JSON_PROVIDERS:
         body["response_format"] = {"type": "json_object"}
     try:
         resp = httpx.post(
             f"{base.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json=body,
-            timeout=60.0,
+            timeout=90.0,
         )
         resp.raise_for_status()
-        return parse_json_lenient(resp.json()["choices"][0]["message"]["content"])
+        return parse_json_lenient(_content(resp.json()))
     except Exception:
         return None
