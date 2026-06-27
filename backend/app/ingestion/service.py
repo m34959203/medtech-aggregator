@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import IngestionRun, Price, PriceHistory, Source
 from ..schemas import IngestionResult
+from .currency import Currency, normalize as normalize_currency
 from .file_parser import RawItem
 from .normalizer import Normalizer
 
@@ -20,14 +21,14 @@ SOURCE_PRIORITY = {"upload": 3, "api": 2, "web_scrape": 1}
 
 def to_kzt(price: float, currency: str) -> tuple[float, float | None, str]:
     """§2.2: привести цену к KZT. Возвращает (price_kzt, price_original, currency_original).
-    Для KZT/пустой валюты конверсии нет (original=None)."""
-    cur = (currency or "KZT").upper()
-    if cur in ("", "KZT", "ТГ", "ТЕНГЕ", "₸"):
-        return float(price), None, ""
-    if cur == "USD":
-        return round(float(price) * settings.usd_kzt_rate, 2), float(price), "USD"
-    # неизвестная валюта — курс не угадываем, цену оставляем, оригинал помечаем
-    return float(price), float(price), cur
+
+    Валюта нормализуется к строгому enum {KZT, USD} (currency.normalize): шум
+    «Тенге/₸/$» приводится к канону, неизвестное → KZT (конверсии нет). Так
+    currency_original всегда каноничен («USD» или пусто), а хранимая цена — KZT.
+    """
+    if normalize_currency(currency) is Currency.USD:
+        return round(float(price) * settings.usd_kzt_rate, 2), float(price), Currency.USD.value
+    return float(price), None, ""
 
 
 def record_price_history(db: Session, clinic_id: int, service_id: int, price: float) -> None:

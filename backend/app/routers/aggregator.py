@@ -17,7 +17,13 @@ from ..db import get_db
 from ..ingestion import category as category_enum
 from ..ingestion import ontology, variants
 from ..models import Clinic, Price, PriceHistory, ServiceCatalog
-from ..schemas import PriceOffer, ServiceComparison, ServiceOut, ServiceVariant
+from ..schemas import (
+    CollectedRecord,
+    PriceOffer,
+    ServiceComparison,
+    ServiceOut,
+    ServiceVariant,
+)
 
 router = APIRouter(prefix="/api", tags=["aggregator"])
 
@@ -192,7 +198,9 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
                 lng=clinic.lng,
                 phone=clinic.phone,
                 price=float(price.price),
+                price_kzt=float(price.price),  # §2.2 дословно
                 currency=price.currency,
+                service_name_norm=service.canonical_name,  # §2.2: привязка к справочнику
                 raw_name=price.raw_name,
                 source_type=price.source_type,
                 match_confidence=price.match_confidence,
@@ -258,6 +266,65 @@ def compare(
         online_booking=online_booking, user_lat=user_lat, user_lng=user_lng,
         with_variants=True,
     )
+
+
+@router.get("/records", response_model=list[CollectedRecord])
+def records(
+    city: str | None = None,
+    service_id: uuid.UUID | None = None,
+    active_only: bool = False,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """§2.2: плоская выгрузка «структуры собираемых данных» — кортежи
+    (клиника × услуга × цена) дословно по полям/типам ТЗ. Строгие enum
+    `category`/`currency`, нормализованное имя из привязки к справочнику."""
+    cutoff = datetime.utcnow() - timedelta(days=settings.price_freshness_days)
+    date_cutoff = cutoff.date()
+
+    q = (
+        db.query(Price, Clinic, ServiceCatalog)
+        .join(Clinic, Price.clinic_id == Clinic.id)
+        .join(ServiceCatalog, Price.service_id == ServiceCatalog.id)
+    )
+    if city:
+        q = q.filter(Clinic.city == city)
+    if service_id:
+        q = q.filter(Price.service_id == service_id)
+    q = q.order_by(Price.id.desc())  # портативно (SQLite/PG); свежесть — в is_active
+
+    out: list[CollectedRecord] = []
+    for price, clinic, service in q.offset(offset).limit(limit).all():
+        pa = getattr(price, "parsed_at", None)
+        fresh = getattr(price, "is_active", True) is not False
+        if pa is not None:
+            fresh = fresh and pa >= cutoff
+        elif price.valid_from is not None:
+            fresh = fresh and price.valid_from >= date_cutoff
+        if active_only and not fresh:
+            continue
+        out.append(
+            CollectedRecord(
+                clinic_id=clinic.id,
+                clinic_name=clinic.name,
+                city=clinic.city or "",
+                address=clinic.address or "",
+                phone=clinic.phone or "",
+                working_hours=clinic.working_hours or "",
+                source_url=getattr(price, "source_url", "") or clinic.website or "",
+                service_id=service.id,
+                service_name_raw=price.raw_name,
+                service_name_norm=service.canonical_name,
+                category=category_enum.to_enum(service.category, service.specialty, service.canonical_name),
+                price_kzt=price.price,
+                currency=price.currency,
+                duration_days=getattr(price, "duration_days", None),
+                parsed_at=pa or datetime.utcnow(),
+                is_active=fresh,
+            )
+        )
+    return out
 
 
 @router.get("/suggest", response_model=list[str])

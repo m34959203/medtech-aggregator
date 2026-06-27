@@ -7,12 +7,30 @@
 """
 from __future__ import annotations
 
-LAB = "лаборатория"
-DOCTOR = "приём врача"
-DIAGNOSTIC = "диагностика"
-PROCEDURE = "процедура"
+import enum
 
-ENUM = (LAB, DOCTOR, DIAGNOSTIC, PROCEDURE)
+
+class Category(str, enum.Enum):
+    """§2.2 ТЗ MedPrice: категория услуги — строгий enum из 4 значений.
+
+    Наследование от ``str`` делает члены полноценными строками: сравнение и
+    проверка вхождения с обычными строками (`== "лаборатория"`, `in present`)
+    работают, а Pydantic/FastAPI сериализуют их в значение-строку.
+    """
+
+    LAB = "лаборатория"
+    DOCTOR = "приём врача"
+    DIAGNOSTIC = "диагностика"
+    PROCEDURE = "процедура"
+
+
+# Обратная совместимость: модуль-уровневые алиасы и кортеж значений.
+LAB = Category.LAB
+DOCTOR = Category.DOCTOR
+DIAGNOSTIC = Category.DIAGNOSTIC
+PROCEDURE = Category.PROCEDURE
+
+ENUM = tuple(Category)
 
 # Подстроки (lower) → каноническая категория. Порядок важен: врач и диагностика
 # проверяются до лаборатории (например «диагностика» не должна попасть в лабораторию).
@@ -30,7 +48,7 @@ _RULES: list[tuple[tuple[str, ...], str]] = [
 ]
 
 
-def to_enum(*parts: str) -> str:
+def to_enum(*parts: str) -> Category:
     """Каноническая категория ТЗ по любым подсказкам (категория, специальность, имя)."""
     blob = " ".join(p for p in parts if p).lower()
     if not blob.strip():

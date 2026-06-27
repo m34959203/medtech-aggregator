@@ -160,3 +160,64 @@ def test_stale_price_excluded_from_results(client):
     r = client.get(f"/api/compare/{client.sid}").json()
     assert r["offers_count"] == 1 and r["offers"][0]["clinic_name"] == "Дешёвая"
     # include_stale через прямой билдер не нужен — фильтр по умолчанию строгий
+
+
+# ---------- §2.2 строгое закрытие: enum-типы + плоская запись ----------
+
+def test_currency_enum_normalizes_noise():
+    from app.ingestion.currency import Currency, normalize
+    assert normalize("Тенге") is Currency.KZT
+    assert normalize("₸") is Currency.KZT
+    assert normalize("$") is Currency.USD
+    assert normalize("") is Currency.KZT
+    assert normalize("неведомая") is Currency.KZT  # неизвестное → KZT, не падаем
+    # хранимая валюта после конверсии — всегда KZT, оригинал каноничен
+    kzt, orig, cur = to_kzt(10, "$")
+    assert cur == "USD" and orig == 10.0 and kzt > 10
+
+
+def test_category_is_typed_enum():
+    # члены — полноценные строки И типизированный enum
+    assert isinstance(cat.LAB, cat.Category) and cat.LAB == "лаборатория"
+    assert {c.value for c in cat.Category} == {
+        "лаборатория", "приём врача", "диагностика", "процедура"}
+
+
+def test_records_endpoint_verbatim_tz_22(client):
+    """§2.2 «в точь точь»: плоская запись содержит ровно поля ТЗ с нужными типами."""
+    rows = client.get("/api/records").json()
+    assert rows, "ожидаем хотя бы одну запись"
+    rec = rows[0]
+    expected = {
+        "clinic_id", "clinic_name", "city", "address", "phone", "working_hours",
+        "source_url", "service_id", "service_name_raw", "service_name_norm",
+        "category", "price_kzt", "currency", "duration_days", "parsed_at", "is_active",
+    }
+    assert set(rec.keys()) == expected  # ни одного лишнего/недостающего поля
+    assert rec["category"] in {c.value for c in cat.Category}      # строгий enum
+    assert rec["currency"] in ("KZT", "USD")                       # строгий enum
+    assert rec["service_name_norm"] == "Общий анализ крови"        # привязка к справочнику
+    assert rec["service_name_raw"] == "ОАК"
+    assert isinstance(rec["is_active"], bool)
+    # фильтр по городу работает
+    alm = client.get("/api/records", params={"city": "Алматы"}).json()
+    assert alm and all(x["city"] == "Алматы" for x in alm)
+
+
+def test_records_invalid_enum_rejected_by_schema():
+    """Строгость на уровне схемы: не-enum валюта/категория не пройдут валидацию."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+    from app.schemas import CollectedRecord
+    base = dict(
+        clinic_id=__import__("uuid").uuid4(), clinic_name="X", city="A", address="",
+        phone="", working_hours="", source_url="", service_id=__import__("uuid").uuid4(),
+        service_name_raw="r", service_name_norm="n", category="лаборатория",
+        price_kzt="1500", currency="KZT", duration_days=None,
+        parsed_at=datetime.utcnow(), is_active=True,
+    )
+    CollectedRecord(**base)  # валидная — ок
+    with _pytest.raises(ValidationError):
+        CollectedRecord(**{**base, "currency": "EUR"})
+    with _pytest.raises(ValidationError):
+        CollectedRecord(**{**base, "category": "Прочее"})

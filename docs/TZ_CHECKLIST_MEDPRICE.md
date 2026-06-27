@@ -35,13 +35,15 @@
 | source_url | ✅ | `Price.source_url` (URL источника записи, из `Source` при ingest) → `PriceOffer.source_url` |
 | service_id (**uuid**) | ✅ | `ServiceCatalog.id` тип `Uuid` (§2.2 буквально); `Price.service_id` FK uuid |
 | service_name_raw | ✅ | `Price.raw_name` |
-| service_name_norm | ✅ | `ServiceCatalog.canonical_name` |
-| category (enum 4) | ✅ | `category.to_enum()` → лаборатория/приём врача/диагностика/процедура; `ServiceComparison.category_enum`, `/api/categories` |
-| price_kzt (decimal) | ✅ | `Price.price` Numeric(12,2) |
-| currency (KZT/USD→KZT) | ✅ | `service.to_kzt()` конвертирует USD; оригинал в `Price.price_original/currency_original` |
+| service_name_norm | ✅ | `ServiceCatalog.canonical_name`; дословно в `CollectedRecord.service_name_norm` и `PriceOffer.service_name_norm` |
+| category (enum 4) | ✅ строго | типизированный `category.Category(str, Enum)` = лаборатория/приём врача/диагностика/процедура; `category.to_enum()`; поля `CollectedRecord.category` / `ServiceComparison.category_enum` типа `Category`; `/api/categories` |
+| price_kzt (decimal) | ✅ | `Price.price` Numeric(12,2); дословно `CollectedRecord.price_kzt: Decimal`, `PriceOffer.price_kzt` |
+| currency (KZT/USD→KZT) | ✅ строго | типизированный `currency.Currency(str, Enum)` = {KZT, USD}; `currency.normalize()` приводит шум (Тенге/₸/$) к канону на приёме; `service.to_kzt()` конвертирует USD→KZT; поля схем типа `Currency`; оригинал в `Price.price_original/currency_original` |
 | duration_days | ✅ | `Price.duration_days` (KDL-адаптер парсит «срок выполнения») |
 | parsed_at (datetime) | ✅ | `Price.parsed_at` |
 | is_active (bool) | ✅ | `Price.is_active` (+ авто-деактивация устаревших) |
+
+**Дословная §2.2-запись (в точь точь):** `GET /api/records` → `list[CollectedRecord]` отдаёт плоские кортежи (клиника × услуга × цена) ровно с полями/именами/типами таблицы ТЗ §2.2: `clinic_id, clinic_name, city, address, phone, working_hours, source_url, service_id, service_name_raw, service_name_norm, category(enum), price_kzt(decimal), currency(enum), duration_days, parsed_at, is_active`. Строгие enum (`category`/`currency`) валидируются на уровне Pydantic-схемы. Фильтры: `city`, `service_id`, `active_only`, пагинация `limit`/`offset`.
 
 ## §3.1 Модуль сбора (парсер)
 

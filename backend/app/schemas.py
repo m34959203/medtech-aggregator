@@ -1,7 +1,11 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
+
+from .ingestion.category import Category
+from .ingestion.currency import Currency
 
 
 class ClinicOut(BaseModel):
@@ -36,9 +40,36 @@ class PriceOut(BaseModel):
     source_type: str
     raw_name: str
     price: float
-    currency: str
+    currency: Currency
     match_confidence: float
     valid_from: date
+
+
+# --- §2.2 MedPrice: плоская «запись собираемых данных» (в точь по ТЗ) ---
+class CollectedRecord(BaseModel):
+    """Один кортеж (клиника × услуга × цена) — структура §2.2 дословно.
+
+    Поля, имена и типы соответствуют таблице ТЗ §2.2 «Структура собираемых
+    данных» один-в-один. `category`/`currency` — строгие enum; `price_kzt` —
+    decimal; нормализованное имя берётся из привязки к справочнику.
+    """
+
+    clinic_id: uuid.UUID
+    clinic_name: str
+    city: str
+    address: str
+    phone: str
+    working_hours: str
+    source_url: str
+    service_id: uuid.UUID
+    service_name_raw: str
+    service_name_norm: str
+    category: Category
+    price_kzt: Decimal
+    currency: Currency
+    duration_days: int | None
+    parsed_at: datetime
+    is_active: bool
 
 
 # --- Агрегатор: сравнение цен ---
@@ -53,7 +84,7 @@ class PriceOffer(BaseModel):
     lng: float | None
     phone: str
     price: float
-    currency: str
+    currency: Currency
     raw_name: str
     source_type: str
     match_confidence: float
@@ -63,6 +94,9 @@ class PriceOffer(BaseModel):
     working_hours: str = ""
     website: str = ""
     source_url: str = ""
+    # §2.2 дословные имена: норм. название услуги и цена в KZT (для записи-кортежа)
+    service_name_norm: str = ""
+    price_kzt: float | None = None
     rating: float | None = None
     online_booking: bool | None = None
     duration_days: int | None = None
@@ -85,7 +119,7 @@ class ServiceComparison(BaseModel):
     service_id: uuid.UUID
     canonical_name: str
     category: str
-    category_enum: str = ""   # §2.2: лаборатория / приём врача / диагностика / процедура
+    category_enum: Category | None = None  # §2.2: лаборатория / приём врача / диагностика / процедура
     offers_count: int
     min_price: float
     max_price: float
