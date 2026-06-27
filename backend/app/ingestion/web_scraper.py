@@ -192,8 +192,60 @@ def _dedup(items: list[RawItem]) -> list[RawItem]:
     return out
 
 
+_DOW_RU = {
+    "monday": "Пн", "tuesday": "Вт", "wednesday": "Ср", "thursday": "Чт",
+    "friday": "Пт", "saturday": "Сб", "sunday": "Вс",
+}
+_DOW_ORDER = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+
+def _format_opening_hours(spec) -> str:
+    """schema.org openingHoursSpecification → компактная строка «Пн–Пт 07:30–15:00, Сб …».
+
+    Соседние дни с одинаковым интервалом схлопываются в диапазон. Возвращает ""
+    если данных нет/формат неожиданный (часы — необязательное поле клиники)."""
+    if not spec:
+        return ""
+    items = spec if isinstance(spec, list) else [spec]
+    by_day: dict[str, str] = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        opens, closes = it.get("opens"), it.get("closes")
+        days = it.get("dayOfWeek") or []
+        days = days if isinstance(days, list) else [days]
+        for d in days:
+            name = str(d).rstrip("/").rsplit("/", 1)[-1].lower()
+            ru = _DOW_RU.get(name)
+            if ru and opens and closes:
+                by_day[ru] = f"{opens}–{closes}"
+    if not by_day:
+        return ""
+    # схлопываем подряд идущие дни с одинаковым интервалом
+    ordered = [(d, by_day[d]) for d in _DOW_ORDER if d in by_day]
+    groups: list[tuple[str, str, str]] = []  # (день_от, день_до, интервал)
+    for d, h in ordered:
+        if groups and groups[-1][2] == h and _DOW_ORDER.index(d) == _DOW_ORDER.index(groups[-1][1]) + 1:
+            groups[-1] = (groups[-1][0], d, h)
+        else:
+            groups.append((d, d, h))
+    parts = [(f"{a}–{b} {h}" if a != b else f"{a} {h}") for a, b, h in groups]
+    return ", ".join(parts)
+
+
+def _ld_rating(obj: dict):
+    """aggregateRating.ratingValue → float (или None)."""
+    ar = obj.get("aggregateRating")
+    if isinstance(ar, dict):
+        try:
+            return round(float(str(ar.get("ratingValue")).replace(",", ".")), 1)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def fetch_103kz_card(url: str, timeout: float = 20.0) -> dict | None:
-    """Реальные контакты клиники с 103.kz: адрес, телефон, координаты.
+    """Реальные контакты клиники с 103.kz: адрес, телефон, координаты, сайт, часы, рейтинг.
     На главной субдомена есть JSON-LD LocalBusiness с geo — это настоящий филиал
     (Organization-блок без geo — шаблонный головной офис, игнорируем)."""
     import json
@@ -218,11 +270,16 @@ def fetch_103kz_card(url: str, timeout: float = 20.0) -> dict | None:
                 geo = obj["geo"]
                 tel = (obj.get("telephone") or "").split(",")[0].strip()
                 tel = re.sub(r"\s+", " ", tel)
+                website = (obj.get("url") or "").strip()
+                # url JSON-LD часто = сам 103.kz-субдомен; это допустимая «страница клиники».
                 return {
                     "address": addr.get("streetAddress") if isinstance(addr, dict) else None,
                     "phone": tel or "",
                     "lat": geo.get("latitude"),
                     "lng": geo.get("longitude"),
+                    "website": website,
+                    "working_hours": _format_opening_hours(obj.get("openingHoursSpecification")),
+                    "rating": _ld_rating(obj),
                 }
     return None
 
