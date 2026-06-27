@@ -111,7 +111,7 @@
 | **Сравнение таблицей** | ✅ `/compare` + `POST /api/compare-clinics` (услуги×клиники, 🏆 лучшая цена, итог/экономия/дистанция/рекомендации, sticky шапка+столбец, мобильные карточки) |
 | **Подписка на изменение цены** | ✅ `PriceSubscription` + `/api/subscriptions` + `scheduler.check_price_subscriptions` → уведомление в WhatsApp при снижении; форма «🔔 Подписаться» в `ComparisonView` |
 | Маршрут до клиники | ✅ кнопка «Маршрут» (карта + `/compare`) → Яндекс.Карты `rtext` от геолокации (вместо 2GIS/Google) |
-| **Распознавание фото/скана направления (OCR)** | ✅ сверх ТЗ: `/recipe` и `/admin/normalizer` принимают фото/PDF → OCR (tesseract rus/kaz/eng) → разбор услуг |
+| **Распознавание фото/скана направления (OCR)** | ✅ сверх ТЗ: `/recipe`, `/admin/normalizer` и **чат-помощник** (`POST /api/chat/vision`) принимают фото/PDF → OCR (tesseract rus/kaz/eng) → разбор услуг |
 
 ## §8 Ограничения и правила
 
