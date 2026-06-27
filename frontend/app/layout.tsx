@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Image from "next/image";
 import Link from "next/link";
 import ChatWidget from "@/components/ChatWidget";
 import "./globals.css";
@@ -98,6 +99,17 @@ function SiteFooter() {
           © {new Date().getFullYear()} МедЦена. Уточняйте актуальную стоимость в
           клинике.
         </p>
+        <div className="mt-4 flex items-center gap-3 border-t border-ink-100 pt-4">
+          <span className="text-xs text-ink-400">Организатор хакатона</span>
+          <Image
+            src="/organizer-logo.gif"
+            alt="Логотип организатора хакатона"
+            width={132}
+            height={59}
+            unoptimized
+            className="h-auto w-[120px] opacity-90"
+          />
+        </div>
       </div>
     </footer>
   );
