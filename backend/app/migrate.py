@@ -75,6 +75,25 @@ def _ensure_pgvector_embeddings() -> None:
         ))
 
 
+def _resync_sequences() -> None:
+    """Идемпотентно: сдвинуть serial-секвенции int-PK таблиц на max(id).
+
+    После bulk-cutover (uuid-миграция #30 переносила строки с явными id через
+    remap_uuid.py) секвенции остались на 1 → первый же INSERT падал с duplicate
+    key (приём/scrape/cron не работали). setval с GREATEST(max,1) безопасен и для
+    пустых таблиц. Только Postgres (в SQLite serial-секвенций нет)."""
+    if engine.dialect.name != "postgresql":
+        return
+    int_pk_tables = ("sources", "ingestion_runs", "prices", "price_reports",
+                     "leads", "price_history")
+    with engine.begin() as conn:
+        for t in int_pk_tables:
+            conn.execute(text(
+                f"SELECT setval(pg_get_serial_sequence('{t}', 'id'), "
+                f"GREATEST((SELECT COALESCE(MAX(id), 0) FROM {t}), 1))"
+            ))
+
+
 def run() -> None:
     insp = inspect(engine)
     tables = set(insp.get_table_names())
@@ -85,6 +104,7 @@ def run() -> None:
         command.upgrade(cfg, "head")
         _ensure_additive_columns()
         _ensure_pgvector_embeddings()
+        _resync_sequences()
         print("[migrate] alembic upgrade head — готово.")
         return
 
@@ -97,6 +117,7 @@ def run() -> None:
         print("[migrate] легаси: добавлена колонка clinics.access_token.")
     _ensure_additive_columns()
     _ensure_pgvector_embeddings()
+    _resync_sequences()
     command.stamp(cfg, "head")
     print("[migrate] легаси-БД адаптирована и помечена head.")
 

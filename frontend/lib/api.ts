@@ -177,6 +177,28 @@ export function uploadBatch(files: File[], clinicId?: string): Promise<BatchResu
   return apiFetch<BatchResult>("/api/ingest/upload-batch", { method: "POST", body: form });
 }
 
+// §3.1: ручной автосбор по URL клиники (web_scrape, с учётом robots.txt).
+export type ScrapeResult = {
+  run_id: number;
+  items_found: number;
+  matched: number;
+  needs_review: number;
+  status: string;
+};
+export function scrapeSite(clinicId: string, url: string, dynamic = false): Promise<ScrapeResult> {
+  return apiFetch<ScrapeResult>("/api/ingest/scrape", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clinic_id: clinicId, url, dynamic }),
+  });
+}
+
+// §3.1: ручной запуск планового сбора по всем включённым pull-источникам.
+export type RunScheduledResult = { report: Array<Record<string, unknown>> };
+export function runScheduled(): Promise<RunScheduledResult> {
+  return apiFetch<RunScheduledResult>("/api/ingest/run-scheduled", { method: "POST" });
+}
+
 // Прямая ссылка на скачивание (same-origin: /api проксируется Next-ом на бэкенд).
 export function catalogExportUrl(format: "xlsx" | "csv"): string {
   return `/api/export/catalog?format=${format}`;

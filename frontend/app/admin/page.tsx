@@ -8,6 +8,8 @@ import {
   getIngestionRuns,
   getIngestionStats,
   issuePortalAccess,
+  runScheduled,
+  scrapeSite,
   uploadBatch,
 } from "@/lib/api";
 import type { BatchResult, IngestionRun, IngestionStats } from "@/lib/types";
@@ -68,6 +70,7 @@ export default function AdminPage() {
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <ExportCard />
         <BatchUploadCard onDone={refresh} />
+        <ScrapeCard onDone={refresh} />
         <PortalIssueCard />
       </div>
 
@@ -128,6 +131,103 @@ function StatsGrid({ stats }: { stats: IngestionStats | null }) {
           {c.hint && <p className="text-xs text-ink-400">{c.hint}</p>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function ScrapeCard({ onDone }: { onDone: () => void }) {
+  const [clinicId, setClinicId] = useState("");
+  const [url, setUrl] = useState("");
+  const [dynamic, setDynamic] = useState(false);
+  const [busy, setBusy] = useState<"" | "scrape" | "scheduled">("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function doScrape() {
+    if (!clinicId || !url || busy) return;
+    setBusy("scrape");
+    setErr(null);
+    setMsg(null);
+    try {
+      const r = await scrapeSite(clinicId, url, dynamic);
+      setMsg(`Снято позиций: ${r.items_found} · сопоставлено: ${r.matched} · на проверку: ${r.needs_review}`);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof ApiError ? `Ошибка: ${e.message}` : "Автосбор не удался.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function doScheduled() {
+    if (busy) return;
+    setBusy("scheduled");
+    setErr(null);
+    setMsg(null);
+    try {
+      const r = await runScheduled();
+      setMsg(`Плановый сбор завершён: источников обработано ${r.report.length}.`);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof ApiError ? `Ошибка: ${e.message}` : "Не удалось запустить сбор.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <h2 className="text-base font-semibold text-ink-900">Автосбор с сайта</h2>
+      <p className="mt-1 text-sm text-ink-500">
+        Снять прайс с публичной страницы клиники (учитывает robots.txt) или запустить
+        плановый сбор по всем включённым источникам — то же, что делает cron.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        <input
+          type="text"
+          value={clinicId}
+          onChange={(e) => setClinicId(e.target.value)}
+          placeholder="clinic_id (uuid)"
+          className="field w-full py-2 text-sm"
+        />
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://клиника.kz/prices"
+          className="field w-full py-2 text-sm"
+        />
+        <label className="flex items-center gap-2 text-sm text-ink-600">
+          <input
+            type="checkbox"
+            checked={dynamic}
+            onChange={(e) => setDynamic(e.target.checked)}
+            className="h-4 w-4 rounded border-ink-300"
+          />
+          Динамический рендер (SPA, медленнее)
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={doScrape}
+            disabled={!clinicId || !url || busy !== ""}
+            className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-glow transition hover:bg-brand-700 disabled:opacity-50"
+          >
+            {busy === "scrape" ? "Собираю…" : "Снять прайс по URL"}
+          </button>
+          <button
+            type="button"
+            onClick={doScheduled}
+            disabled={busy !== ""}
+            className="inline-flex items-center gap-2 rounded-full border border-ink-200 px-5 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
+          >
+            {busy === "scheduled" ? "Запускаю…" : "Запустить плановый сбор"}
+          </button>
+        </div>
+        {msg && <p className="text-sm text-brand-700">{msg}</p>}
+        {err && <p className="text-sm text-red-600">{err}</p>}
+      </div>
     </div>
   );
 }

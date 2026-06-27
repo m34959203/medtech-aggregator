@@ -54,7 +54,7 @@
 | Дедупликация при повторе | ✅ | `service.ingest_items` (по clinic_id+service_id) |
 | Журнал ошибок (источник+причина) | ✅ | `IngestionRun(status=error, message=...)`, `scheduler._log_error` |
 | Raw-слой отдельно | ✅ | `IngestionRun.raw_content` (сырой HTML web_scrape + текст файлов) |
-| Запуск вручную / по расписанию | ✅ | POST `/api/ingest/*`, `scheduler.py` (cron `0 */6 * * *`) |
+| Запуск вручную / по расписанию | ✅ | **Интерфейс**: `/admin` — карточка «Автосбор с сайта» (приём по URL → POST `/api/ingest/scrape`) + кнопка «Запустить плановый сбор» (POST `/api/ingest/run-scheduled`); пакетная загрузка файлов. **Cron**: `scripts/cron-ingest.sh` (flock) в crontab `0 */6 * * *` → `docker exec medtech-backend python -m app.scheduler` |
 
 ## §3.2 Нормализация и справочник
 
@@ -86,7 +86,7 @@
 
 | Требование | Статус | Где |
 |---|---|---|
-| Обновление ≥1/сутки | ✅ | `scheduler` cron `0 */6 * * *` (каждые 6 ч). Роутинг: web_scrape (KDL/invitro/103/KazMedClinic) → `scrape_url`, api `doq://{city}/{clinic}` → `doq_connector.refresh`. Источники старше — деактивируются по свежести. |
+| Обновление ≥1/сутки | ✅ | crontab `0 */6 * * *` → `scripts/cron-ingest.sh` (flock, реально установлен на проде, каждые 6 ч). Роутинг: web_scrape (KDL/invitro/103/KazMedClinic) → `scrape_url`, api `doq://{city}/{clinic}` → `doq_connector.refresh`. Источники старше — деактивируются по свежести. |
 | UI-выдача < 3 c | ✅ | справочник мал, запрос индексирован |
 | Не выдавать данные >30 дней как актуальные | ✅ | фильтр свежести в `_build_comparison` + `scheduler.mark_stale_inactive` |
 | Масштабируемость источников | ✅ | реестр `Source` + адаптеры по домену без правки ядра |
