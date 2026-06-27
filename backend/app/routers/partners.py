@@ -168,15 +168,15 @@ def archive_quality(db: Session = Depends(get_db)):
     документов (IngestionRun с сохранённым файлом), а не по всему каталогу-агрегатору
     (Кейс 1, web-скрап) — иначе auto_rate вводит в заблуждение при 0 документов."""
     # архивные прогоны = документы-прайсы с именем файла (push-загрузка архива)
-    archive_run_ids = [r[0] for r in db.query(IngestionRun.id)
-                       .filter(IngestionRun.file_name != "").all()]
-    docs = len(archive_run_ids)
-
-    base = db.query(func.count(Price.id)).filter(Price.run_id.in_(archive_run_ids)) \
-        if archive_run_ids else None
-    positions = (base.scalar() or 0) if base is not None else 0
-    matched = (base.filter(Price.service_id.isnot(None)).scalar() or 0) if base is not None else 0
-    unmatched = positions - matched
+    runs = db.query(IngestionRun).filter(IngestionRun.file_name != "").all()
+    docs = len(runs)
+    # ПОЗИЦИОННАЯ метрика (как в ТЗ «% позиций нормализуются»): берём из прогонов
+    # (до дедупа). По сохранённым строкам метрика искажается — matched схлопывается
+    # по service_id, unmatched нет → доля занижается.
+    matched = sum(r.matched or 0 for r in runs)
+    unmatched = sum(r.needs_review or 0 for r in runs)
+    positions = matched + unmatched
+    archive_run_ids = [r.id for r in runs]
     with_codes = (db.query(func.count(Price.id))
                   .filter(Price.run_id.in_(archive_run_ids), Price.tarificator_code != "")
                   .scalar() or 0) if archive_run_ids else 0

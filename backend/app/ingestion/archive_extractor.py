@@ -61,14 +61,24 @@ def _is_noise_name(name: str) -> bool:
     return letters < 4
 
 
+# Санитарный потолок цены: медуслуга в KZT не стоит >100 млн. Выше — артефакт
+# разбора (склейка ячеек/OCR-мусор/номер документа); такие значения отбрасываем,
+# заодно защищая колонку price NUMERIC(12,2) (макс < 10^10) от переполнения.
+_MAX_PRICE = 100_000_000.0
+
+
 # ── разбор цены ─────────────────────────────────────────────────────────────
+def _sane_price(val: float) -> float | None:
+    return val if 0 < val <= _MAX_PRICE else None
+
+
 def parse_price(value) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value) if value > 0 else None
+        return _sane_price(float(value))
     s = str(value).replace("\xa0", " ").strip()
     # вычищаем валюту/буквы, оставляем цифры/разделители
     m = re.search(r"\d[\d\s.,]*", s)
@@ -80,7 +90,7 @@ def parse_price(value) -> float | None:
         val = float(token)
     except ValueError:
         return None
-    return val if val > 0 else None
+    return _sane_price(val)
 
 
 def _normalize_number(token: str) -> str:

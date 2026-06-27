@@ -102,6 +102,11 @@ class IngestionRun(Base):
         Uuid, ForeignKey("clinics.id"), nullable=True)  # партнёр-источник документа
     effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # дата вступления прайса в силу
     file_path: Mapped[str] = mapped_column(Text, default="")  # путь к сохранённому оригиналу
+    # позиционные метрики качества прогона (до дедупа) — для честного archive/quality:
+    # auto_rate = matched/(matched+needs_review). По сохранённым строкам метрика
+    # искажается (matched схлопывается по service_id, unmatched — нет).
+    matched: Mapped[int] = mapped_column(Integer, default=0)
+    needs_review: Mapped[int] = mapped_column(Integer, default=0)
 
     source: Mapped["Source"] = relationship(back_populates="runs")
     prices: Mapped[list["Price"]] = relationship(back_populates="run")

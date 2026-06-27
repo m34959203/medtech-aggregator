@@ -147,6 +147,8 @@ def ingest_archive(
     deduped = len(batch)
     auto_rate = round(100.0 * matched / max(matched + needs_review, 1), 1)
     run.status = "needs_review" if needs_review > matched else "normalized"
+    run.matched = matched
+    run.needs_review = needs_review
     run.message = (
         f"Документ '{file_name}': позиций {len(items)}, услуг {deduped}, "
         f"auto-match {matched} ({auto_rate}%), на проверку {needs_review}, "

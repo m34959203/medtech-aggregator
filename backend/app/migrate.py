@@ -26,6 +26,8 @@ _ADDITIVE_COLUMNS = {
         ("file_name", "TEXT"), ("raw_content", "TEXT"),
         # §3.2 PriceDocument / §2.1 сохранение оригиналов
         ("clinic_id", "UUID"), ("effective_date", "DATE"), ("file_path", "TEXT"),
+        # позиционные метрики качества (archive/quality, до дедупа)
+        ("matched", "INTEGER"), ("needs_review", "INTEGER"),
     ],
     "clinics": [
         ("working_hours", "TEXT"),
