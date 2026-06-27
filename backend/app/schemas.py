@@ -30,6 +30,7 @@ class ServiceOut(BaseModel):
     canonical_name: str
     category: str
     synonyms: list = []
+    description: str = ""
 
 
 class PriceOut(BaseModel):
@@ -118,6 +119,7 @@ class ServiceVariant(BaseModel):
 class ServiceComparison(BaseModel):
     service_id: uuid.UUID
     canonical_name: str
+    description: str = ""  # краткое пояснение услуги для витрины
     category: str
     category_enum: Category | None = None  # §2.2: лаборатория / приём врача / диагностика / процедура
     offers_count: int

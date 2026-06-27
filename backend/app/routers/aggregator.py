@@ -278,6 +278,7 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
     return ServiceComparison(
         service_id=service.id,
         canonical_name=service.canonical_name,
+        description=service.description or "",
         category=service.category,
         category_enum=category_enum.to_enum(service.category, service.specialty, service.canonical_name),
         offers_count=len(offers),

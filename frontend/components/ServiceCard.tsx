@@ -36,9 +36,16 @@ export default function ServiceCard({
         </span>
       </div>
 
-      <h3 className="text-base font-semibold leading-snug text-ink-900 transition group-hover:text-brand-700">
-        {service.canonical_name}
-      </h3>
+      <div>
+        <h3 className="text-base font-semibold leading-snug text-ink-900 transition group-hover:text-brand-700">
+          {service.canonical_name}
+        </h3>
+        {service.description && (
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-500">
+            {service.description}
+          </p>
+        )}
+      </div>
 
       <div className="mt-auto flex items-end justify-between gap-3 border-t border-ink-100 pt-4">
         <div>

@@ -436,3 +436,10 @@ KDL branch-страницы (abay/baykonur/erkinkala/shayan) давали «го
 - **Данные**: всё из существующего `/api/compare/{id}` (`PriceOffer`: price/rating/online_booking/working_hours/address/lat-lng/valid_from). Бэкенд не трогали.
 - Verify: `tsc --noEmit` 0 ошибок, `next build` успешно. Прод: ребилд `medtech-frontend`, `/service/[id]` 200, 30 чекбоксов «Сравнить» в DOM.
 - **Долг**: distance в таблице = «—» пока пользователь не дал геолокацию (кнопка «Показать расстояние» в строке зовёт `requestGeo`); ручной UI-прогон в браузере не делал (только сборка+SSR-маркеры).
+
+## Чек-поинт 2026-06-27 (#47) — краткое описание услуги рядом с названием
+- **Запрос**: при просмотре предложений рядом с названием услуги показывать краткое описание.
+- **Данные**: новое поле `ServiceCatalog.description` (alembic `d4a1b2c3e5f6`, idempotent). Сгенерировано батч-скриптом `backend/generate_descriptions.py` (Gemini/Vertex через `llm.json_completion`, батч=25, dry-run/`--apply`, идемпотентно — только пустые, public-first). Прод: **1586/1586 услуг** с описанием, 0 сбоев. Описания короткие, нейтральные, без диагнозов («Глюкоза (в крови)» → «Измерение уровня сахара в крови для оценки углеводного обмена»).
+- **API**: `description` добавлен в `ServiceComparison` (страница услуги + поиск) и `ServiceOut`; `_build_comparison` отдаёт `service.description`.
+- **Фронт**: показ под названием услуги в шапке `ComparisonView` (страница услуги) и в `ServiceCard` (карточки поиска, `line-clamp-2`). Тип `ServiceComparison.description?`.
+- Verify: tsc 0 ошибок, ребилд backend+frontend. Прод: `/api/compare` и `/api/search` отдают description, рендерится в HTML страницы услуги и карточках.

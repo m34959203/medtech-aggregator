@@ -136,6 +136,11 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">
           {data.canonical_name}
         </h1>
+        {data.description && (
+          <p className="max-w-2xl text-sm leading-relaxed text-ink-500">
+            {data.description}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
           {data.ontology && (
             <>

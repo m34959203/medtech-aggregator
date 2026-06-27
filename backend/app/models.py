@@ -57,6 +57,9 @@ class ServiceCatalog(Base):
     canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(Text, default="")
     synonyms: Mapped[list] = mapped_column(JSON, default=list)
+    # Краткое (1 предложение) пояснение «что это за услуга» для витрины — рядом с
+    # названием в карточке/на странице услуги. Заполняется батч-скриптом (Gemini).
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
     # MedArchive: целевой справочник организаторов — код тарификатора (A02.004.000)
     # и специальность. Маппинг по коду даёт 100%-сопоставление без fuzzy.
     tarificator_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)

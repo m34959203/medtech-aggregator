@@ -141,6 +141,7 @@ export type CategoryEnum = "лаборатория" | "приём врача" | 
 export interface ServiceComparison {
   service_id: string; // uuid услуги (§2.2)
   canonical_name: string;
+  description?: string; // краткое пояснение услуги для витрины
   category: string;
   category_enum?: CategoryEnum | string | null;
   offers_count: number;
