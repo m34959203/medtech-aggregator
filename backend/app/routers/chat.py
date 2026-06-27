@@ -18,7 +18,7 @@ import json
 from datetime import date
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 from sqlalchemy import distinct
@@ -30,6 +30,9 @@ from ..db import get_db
 from ..ingestion.normalizer import _clean
 from ..models import Clinic, ServiceCatalog
 from .aggregator import _build_comparison
+# Переиспользуем извлечение услуг из фото/скана направления (OCR) — тот же
+# пайплайн, что и страница /recipe (Кейс 2 §4.2: tesseract rus/kaz/eng).
+from .basket import _extract_text_any, extract_service_names
 
 router = APIRouter(prefix="/api", tags=["assistant"])
 
@@ -62,6 +65,7 @@ class ChatResponse(BaseModel):
     offers: list[ChatOffer] = []
     grounded: bool  # ответ построен на реальных данных витрины
     llm: bool       # отвечал LLM (False = детерминированный фолбэк)
+    recognized: list[str] = []  # услуги, распознанные с фото/скана (OCR-путь)
 
 
 # --- Поиск по справочнику (общая воронка с витриной) ---
@@ -241,11 +245,8 @@ def _chat_completion(messages: list[dict]) -> str:
     return resp.json()["choices"][0]["message"]["content"] or ""
 
 
-def _run_llm(db: Session, messages: list[ChatMessage]):
-    user_q = next((m.content for m in reversed(messages) if m.role == "user"), "")
-    city = _detect_city(db, user_q)
-    offers, summaries = _search_offers(db, user_q, city=city)
-
+def _compose_reply(db: Session, messages: list[ChatMessage], summaries) -> str:
+    """retrieval-injection: вкладываем найденные summaries в system и зовём LLM."""
     cities = [c[0] for c in db.query(distinct(Clinic.city)).all() if c[0]]
     catalog = [s.canonical_name for s in db.query(ServiceCatalog).all()]
     system = _SYSTEM.format(
@@ -256,8 +257,62 @@ def _run_llm(db: Session, messages: list[ChatMessage]):
     )
     convo: list[dict] = [{"role": "system", "content": system}]
     convo += [{"role": m.role, "content": m.content} for m in messages]
-    text = _chat_completion(convo)
+    return _chat_completion(convo)
+
+
+def _run_llm(db: Session, messages: list[ChatMessage]):
+    user_q = next((m.content for m in reversed(messages) if m.role == "user"), "")
+    city = _detect_city(db, user_q)
+    offers, summaries = _search_offers(db, user_q, city=city)
+    text = _compose_reply(db, messages, summaries)
     return text or "Уточните, пожалуйста, какую услугу вы ищете.", offers
+
+
+def _has_chat_key() -> bool:
+    return bool(settings.alem_api_key if settings.chat_provider == "alem" else settings.groq_api_key)
+
+
+def _offers_for_names(db: Session, names: list[str], city: str | None, per_service: int = 6):
+    """Offers+summaries по СПИСКУ распознанных имён услуг (OCR-направление)."""
+    offers: list[ChatOffer] = []
+    summaries = []
+    seen: set = set()
+    for nm in names:
+        for svc in _rank_services(db, nm, limit=1):
+            if svc.id in seen:
+                continue
+            seen.add(svc.id)
+            cmp = _build_comparison(db, svc, city, None, "price_asc")
+            if cmp.offers_count == 0:
+                continue
+            summaries.append(cmp)
+            cheapest, marked = cmp.min_price, False
+            for o in cmp.offers[:per_service]:
+                is_cheapest = not marked and o.price == cheapest
+                marked = marked or is_cheapest
+                offers.append(ChatOffer(
+                    service=cmp.canonical_name, clinic_name=o.clinic_name, city=o.city,
+                    district=o.district, address=o.address, phone=o.phone,
+                    price=o.price, currency=o.currency, is_cheapest=is_cheapest,
+                ))
+    return offers, summaries
+
+
+def _vision_reply_text(summaries, recognized: list[str]) -> str:
+    """Детерминированный ответ для OCR-пути (без LLM/ключа) — демо живёт всегда."""
+    head = "Распознал на направлении: " + ", ".join(recognized[:10]) + ".\n\n"
+    if not summaries:
+        return head + ("По этим услугам цен в базе пока нет — уточните названия "
+                       "или попробуйте более чёткое фото.")
+    lines = []
+    for cmp in summaries:
+        cheap = min(cmp.offers, key=lambda o: o.price)
+        loc = f", {cheap.district}" if cheap.district else ""
+        cur = getattr(cheap.currency, "value", cheap.currency)  # enum → "KZT"
+        lines.append(f"• {cmp.canonical_name}: от {cheap.price:.0f} {cur} — "
+                     f"{cheap.clinic_name}{loc} (предложений: {cmp.offers_count})")
+    return (head + "Где сделать дешевле:\n" + "\n".join(lines)
+            + "\n\nЦены справочные — уточняйте актуальную стоимость в клинике.")
 
 
 def _fallback(db: Session, messages: list[ChatMessage]) -> ChatResponse:
@@ -278,8 +333,9 @@ def _fallback(db: Session, messages: list[ChatMessage]) -> ChatResponse:
     for cmp in summaries:
         cheap = min(cmp.offers, key=lambda o: o.price)
         loc = f", {cheap.district}" if cheap.district else ""
+        cur = getattr(cheap.currency, "value", cheap.currency)  # enum → "KZT"
         lines.append(
-            f"• {cmp.canonical_name}: от {cheap.price:.0f} {cheap.currency} — "
+            f"• {cmp.canonical_name}: от {cheap.price:.0f} {cur} — "
             f"{cheap.clinic_name}{loc} (предложений: {cmp.offers_count})"
         )
     reply = (
@@ -298,8 +354,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             grounded=False,
             llm=False,
         )
-    has_key = settings.alem_api_key if settings.chat_provider == "alem" else settings.groq_api_key
-    if not has_key:
+    if not _has_chat_key():
         return _fallback(db, req.messages)
     try:
         reply, offers = _run_llm(db, req.messages)
@@ -313,3 +368,54 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     except Exception:
         # сеть/квота/ключ — не валим UX, отвечаем детерминированным поиском
         return _fallback(db, req.messages)
+
+
+@router.post("/chat/vision", response_model=ChatResponse,
+             dependencies=[Depends(rate_limit("chat_vision", 10))])
+async def chat_vision(
+    file: UploadFile = File(...),
+    city: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """OCR в чате: фото/скан направления → распознавание услуг → ответ по витрине.
+
+    Тот же retrieval-injection, что и текстовый чат: распознанные услуги ищем по
+    нормализованному справочнику и отвечаем строго по данным (цены не выдумываем).
+    Деградация: нет OCR/ключа — детерминированная сводка по распознанным услугам.
+    """
+    content = await file.read()
+    text = _extract_text_any(file.filename or "", content)
+    if not text.strip():
+        return ChatResponse(
+            reply=("Не удалось прочитать изображение — OCR недоступен или фото "
+                   "нечёткое. Пришлите более чёткий снимок направления или напишите "
+                   "услуги текстом."),
+            grounded=False, llm=False, recognized=[],
+        )
+    names = extract_service_names(text)
+    if not names:
+        return ChatResponse(
+            reply="На изображении не нашёл названий услуг. Попробуйте более чёткое фото.",
+            grounded=False, llm=False, recognized=[],
+        )
+    detected_city = city or _detect_city(db, text)
+    offers, summaries = _offers_for_names(db, names, detected_city)
+    offers = _dedupe(offers)
+    recognized = [cmp.canonical_name for cmp in summaries] or names[:10]
+
+    if _has_chat_key() and summaries:
+        try:
+            synthetic = ChatMessage(
+                role="user",
+                content=(f"Вот услуги из моего направления: {', '.join(names[:15])}. "
+                         f"Где их сделать дешевле"
+                         f"{' в ' + detected_city if detected_city else ''}?"),
+            )
+            reply = _compose_reply(db, [synthetic], summaries)
+            if reply:
+                return ChatResponse(reply=reply, offers=offers, grounded=bool(offers),
+                                    llm=True, recognized=recognized)
+        except Exception:
+            pass  # сеть/квота — деградируем в детерминированный ответ
+    return ChatResponse(reply=_vision_reply_text(summaries, recognized), offers=offers,
+                        grounded=bool(offers), llm=False, recognized=recognized)

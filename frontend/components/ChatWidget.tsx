@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { chat, ApiError } from "@/lib/api";
+import { chat, chatVision, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import type { ChatOffer } from "@/lib/types";
 
@@ -9,6 +9,7 @@ interface UIMessage {
   role: "user" | "assistant";
   content: string;
   offers?: ChatOffer[];
+  recognized?: string[]; // распознанные с фото услуги (OCR)
 }
 
 const GREETING: UIMessage = {
@@ -33,6 +34,7 @@ export default function ChatWidget() {
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -63,6 +65,28 @@ export default function ChatWidget() {
       const msg =
         err instanceof ApiError
           ? "Сервис временно недоступен. Попробуйте ещё раз чуть позже."
+          : "Не удалось связаться с помощником. Проверьте соединение.";
+      setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // OCR-путь: фото/скан направления → распознавание услуг → ответ по витрине.
+  async function sendImage(file: File) {
+    if (!file || loading) return;
+    setMessages((prev) => [...prev, { role: "user", content: `📷 ${file.name}` }]);
+    setLoading(true);
+    try {
+      const res = await chatVision(file);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, offers: res.offers, recognized: res.recognized },
+      ]);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? "Не удалось распознать изображение. Попробуйте более чёткое фото."
           : "Не удалось связаться с помощником. Проверьте соединение.";
       setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
     } finally {
@@ -128,6 +152,19 @@ export default function ChatWidget() {
                   >
                     {m.content}
                   </div>
+                  {m.recognized && m.recognized.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      <span className="text-[10px] text-ink-400">Распознано:</span>
+                      {m.recognized.slice(0, 8).map((r, j) => (
+                        <span
+                          key={j}
+                          className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700 ring-1 ring-inset ring-brand-100"
+                        >
+                          {r}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {m.offers && m.offers.length > 0 && (
                     <div className="space-y-1.5">
                       {m.offers.slice(0, 5).map((o, j) => (
@@ -208,10 +245,35 @@ export default function ChatWidget() {
             className="flex items-center gap-2 border-t border-ink-100 bg-white px-3 py-2.5"
           >
             <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,.pdf,.png,.jpg,.jpeg,.webp,.tiff"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) sendImage(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={loading}
+              aria-label="Прикрепить фото направления"
+              title="Фото/скан направления — распознаю услуги"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-ink-200 text-ink-500 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-40"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden>
+                <path d="M4 8.5A2.5 2.5 0 016.5 6h1l1-1.5h6L16 6h1.5A2.5 2.5 0 0120 8.5v8A2.5 2.5 0 0117.5 19h-11A2.5 2.5 0 014 16.5v-8z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                <circle cx="12" cy="12.5" r="3" stroke="currentColor" strokeWidth="1.6" />
+              </svg>
+            </button>
+            <input
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Спросите про услугу или цену…"
+              placeholder="Спросите или пришлите фото направления…"
               className="flex-1 rounded-full border border-ink-200 bg-ink-50 px-4 py-2.5 text-sm text-ink-800 outline-none transition focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
             <button

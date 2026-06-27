@@ -102,3 +102,32 @@ def test_recommend_file_plaintext(client):
 
 def test_recommend_empty_422(client):
     assert client.post("/api/basket/recommend", json={"text": "...... 123"}).status_code == 422
+
+
+def test_chat_vision_ocr_referral(client, monkeypatch):
+    """OCR в чате: фото направления → распознавание услуг → ответ по витрине.
+    OCR мокаем (tesseract в тестах не нужен) — проверяем логику распознавания+поиска."""
+    monkeypatch.setattr(
+        "app.routers.chat._extract_text_any",
+        lambda fn, content: "Направление\nОбщий анализ крови\nГлюкоза\nТТГ",
+    )
+    r = client.post(
+        "/api/chat/vision",
+        files={"file": ("napravlenie.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+        data={"city": "Алматы"},
+    )
+    assert r.status_code == 200
+    d = r.json()
+    # распознаны и нормализованы 3 услуги справочника
+    assert set(d["recognized"]) == {"Общий анализ крови", "Глюкоза (в крови)", "ТТГ (тиреотропный гормон)"}
+    assert d["grounded"] is True and len(d["offers"]) > 0
+    # цена в ответе без enum-репра «Currency.KZT»
+    assert "Currency." not in d["reply"]
+
+
+def test_chat_vision_unreadable_image(client, monkeypatch):
+    """Нечитаемое фото (OCR пусто) → 200 с понятным сообщением, не падение."""
+    monkeypatch.setattr("app.routers.chat._extract_text_any", lambda fn, content: "")
+    r = client.post("/api/chat/vision", files={"file": ("x.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+    assert r.status_code == 200
+    assert r.json()["recognized"] == [] and r.json()["grounded"] is False

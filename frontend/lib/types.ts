@@ -349,6 +349,7 @@ export interface ChatResponse {
   offers: ChatOffer[];
   grounded: boolean;
   llm: boolean;
+  recognized?: string[]; // услуги, распознанные с фото/скана (OCR-путь)
 }
 
 export interface SearchParams {

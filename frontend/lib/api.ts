@@ -401,6 +401,15 @@ export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<Cha
   });
 }
 
+// OCR в чате: фото/скан направления → распознавание услуг → ответ по витрине.
+// Content-Type не ставим вручную — браузер выставит multipart boundary сам.
+export function chatVision(file: File, city?: string): Promise<ChatResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  if (city) form.append("city", city);
+  return apiFetch<ChatResponse>("/api/chat/vision", { method: "POST", body: form });
+}
+
 // --- WhatsApp-туннель (admin) ---
 export interface WaStatus {
   status: "disconnected" | "connecting" | "qr_ready" | "connected";
