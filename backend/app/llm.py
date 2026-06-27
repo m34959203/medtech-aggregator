@@ -64,23 +64,33 @@ def has_key() -> bool:
 def chat(messages: list[dict], temperature: float = 0.3, max_tokens: int = 700) -> str:
     """Чат-комплишн активного провайдера. Бросает при сетевой/HTTP-ошибке."""
     base, key, model = _endpoint()
+    body = {"model": model, "messages": messages, "temperature": temperature,
+            "max_tokens": _budget(max_tokens)}
+    _apply_gemini(body)
     resp = httpx.post(
         f"{base.rstrip('/')}/chat/completions",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": temperature,
-              "max_tokens": _budget(max_tokens)},
+        json=body,
         timeout=90.0,
     )
     resp.raise_for_status()
     return _content(resp.json())
 
 
-def _budget(max_tokens: int) -> int:
-    """Gemini 2.5 — thinking-модель: резервирует ~100–200 токенов на «размышление»
-    ДО контента. При малом лимите ответ пустой (finish_reason=length). Поднимаем
-    пол до 1024 для Gemini, чтобы хватило и на thinking, и на сам JSON/текст."""
+def _apply_gemini(body: dict) -> None:
+    """Для Gemini 2.5 ОТКЛЮЧАЕМ thinking (thinking_budget=0). На задачах нормализатора
+    (decide/verify) «размышление» жрёт 1000–1400 токенов ДО ответа → при обычном
+    лимите ответ обрезается (finish_reason=length) и теряется. Без thinking — быстро,
+    дёшево, надёжно; качество для структурной классификации достаточное."""
     if settings.chat_provider == "gemini":
-        return max(max_tokens, 1024)
+        body["google"] = {"thinking_config": {"thinking_budget": 0}}
+
+
+def _budget(max_tokens: int) -> int:
+    """Скромный пол для Gemini (thinking отключён в _apply_gemini, но оставляем
+    запас на длинный reason/JSON)."""
+    if settings.chat_provider == "gemini":
+        return max(max_tokens, 512)
     return max_tokens
 
 
@@ -126,6 +136,7 @@ def json_completion(prompt: str, max_tokens: int = 300) -> dict | None:
     }
     if settings.chat_provider in _JSON_PROVIDERS:
         body["response_format"] = {"type": "json_object"}
+    _apply_gemini(body)
     try:
         resp = httpx.post(
             f"{base.rstrip('/')}/chat/completions",
