@@ -5,11 +5,11 @@
 витрина, и вкладываем результаты в контекст модели (retrieval-injection).
 Поэтому бот не выдумывает цены/клиники — отвечает строго по данным.
 
-Провайдер OpenAI-совместимый и настраивается (LLM_PROVIDER): AlemLLM (KZ, по
-умолчанию при наличии ключа) или Groq. Tool-calling НЕ используется — AlemLLM
-его не поддерживает, а retrieval-injection работает с любым провайдером.
+LLM — единая точка `llm.chat` (как у нормализатора/recheck): по умолчанию
+Gemini 2.5-flash через Vertex AI, фолбэк AlemLLM/Groq (LLM_PROVIDER). Tool-calling
+НЕ используется — retrieval-injection работает с любым провайдером.
 
-Деградация: без ключа провайдера (или при ошибке сети) endpoint отвечает
+Деградация: без ключа/SA провайдера (или при ошибке сети) endpoint отвечает
 детерминированным поиском-сводкой. Демо работает всегда — важно для жюри.
 """
 from __future__ import annotations
@@ -17,14 +17,13 @@ from __future__ import annotations
 import json
 from datetime import date
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 from sqlalchemy import distinct
 from sqlalchemy.orm import Session
 
-from ..config import settings
+from .. import llm
 from ..ratelimit import rate_limit
 from ..db import get_db
 from ..ingestion.normalizer import _clean
@@ -230,19 +229,10 @@ def _detect_city(db: Session, text: str) -> str | None:
 
 
 def _chat_completion(messages: list[dict]) -> str:
-    """Единый OpenAI-совместимый вызов для выбранного провайдера."""
-    if settings.chat_provider == "alem":
-        base, key, model = settings.alem_base_url, settings.alem_api_key, settings.alem_model
-    else:
-        base, key, model = "https://api.groq.com/openai/v1", settings.groq_api_key, settings.groq_model
-    resp = httpx.post(
-        f"{base.rstrip('/')}/chat/completions",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": 0.3, "max_tokens": 700},
-        timeout=60.0,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"] or ""
+    """Чат-комплишн активного LLM-провайдера (Gemini 2.5-flash через Vertex по
+    умолчанию; фолбэк AlemLLM/Groq). Единая точка `llm.chat` — та же, что у
+    нормализатора/recheck (Gemini thinking отключён, system-роль поддержана)."""
+    return llm.chat(messages)
 
 
 def _compose_reply(db: Session, messages: list[ChatMessage], summaries) -> str:
@@ -269,7 +259,7 @@ def _run_llm(db: Session, messages: list[ChatMessage]):
 
 
 def _has_chat_key() -> bool:
-    return bool(settings.alem_api_key if settings.chat_provider == "alem" else settings.groq_api_key)
+    return llm.has_key()  # Gemini/Vertex (SA) либо ключ alem/groq
 
 
 def _offers_for_names(db: Session, names: list[str], city: str | None, per_service: int = 6):
