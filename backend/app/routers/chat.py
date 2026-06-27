@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from .. import llm
 from ..ratelimit import rate_limit
 from ..db import get_db
-from ..ingestion.normalizer import _clean
+from ..ingestion.normalizer import _biomat_conflict, _clean
 from ..models import Clinic, ServiceCatalog
 from .aggregator import _build_comparison
 # Переиспользуем извлечение услуг из фото/скана направления (OCR) — тот же
@@ -82,6 +82,10 @@ def _rank_services(db: Session, query: str, limit: int = 3) -> list[ServiceCatal
     direct: list[ServiceCatalog] = []
     scored: list[tuple[float, ServiceCatalog]] = []
     for svc in db.query(ServiceCatalog).all():
+        # биоматериал-гард (плановый дефолт): обычная «Глюкоза» не должна тянуть
+        # мочевой вариант «Глюкоза в моче» — берём кровяной/прямой канон.
+        if _biomat_conflict(query, svc.canonical_name):
+            continue
         keys = [svc.canonical_name] + [str(s) for s in (svc.synonyms or [])]
         cleaned = [_clean(k) for k in keys]
         # Явное упоминание услуги в запросе (длиной от 4 символов — чтобы «КТ»/«ОАК»

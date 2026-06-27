@@ -33,13 +33,20 @@ _SEM_FLOOR = 0.85
 
 
 def extract_service_names(text: str) -> list[str]:
-    """Достаёт строки-кандидаты услуг из свободного текста направления."""
+    """Достаёт строки-кандидаты услуг из свободного текста направления.
+
+    Заголовки/нумерация/служебные строки («Направление на анализы», «ФИО:», дата)
+    отсеиваются line-gate'ом — иначе шапка бланка ловит ложную услугу (и в рецепте,
+    и в чат-OCR, который не делает повторного gate)."""
+    from ..ingestion.line_gate import classify_line
     names: list[str] = []
     for raw in re.split(r"[\n;]+", text or ""):
         line = _BULLET.sub("", raw).strip(" .:-—\t")
         line = re.sub(r"\s{2,}", " ", line)
         if len(line) < 3 or not re.search(r"[A-Za-zА-Яа-яЁё]{3,}", line):
             continue
+        if classify_line(line)[0] == "noise":
+            continue  # заголовок/ФИО/дата/инструкция — не услуга
         names.append(line)
     return names[:30]
 

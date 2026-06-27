@@ -108,7 +108,7 @@ function SiteFooter() {
               width={132}
               height={59}
               unoptimized
-              className="h-auto w-[120px] opacity-90"
+              className="h-auto w-[120px] opacity-90 [filter:brightness(0)]"
             />
           </div>
           <div className="flex items-center gap-3">

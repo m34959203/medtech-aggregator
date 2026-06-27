@@ -131,3 +131,31 @@ def test_chat_vision_unreadable_image(client, monkeypatch):
     r = client.post("/api/chat/vision", files={"file": ("x.png", b"\x89PNG\r\n\x1a\n", "image/png")})
     assert r.status_code == 200
     assert r.json()["recognized"] == [] and r.json()["grounded"] is False
+
+
+def test_extract_drops_referral_header(client):
+    """«Направление на анализы», ФИО, дата, нумерация — не услуги (баг боевого
+    прогона: «Направление на анализы:» ловилось в «Анализ пота»)."""
+    from app.routers.basket import extract_service_names
+    out = extract_service_names(
+        "Направление на анализы:\n1. Общий анализ крови\n2. Глюкоза\nФИО: Иванов И.\n12.06.2026"
+    )
+    assert out == ["Общий анализ крови", "Глюкоза"]
+
+
+def test_chat_rank_plain_analyte_prefers_blood():
+    """«Глюкоза» в чате не должна тянуть мочевой вариант (дефолт=кровь)."""
+    from app.routers.chat import _rank_services
+    eng = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False},
+                        poolclass=StaticPool)
+    Base.metadata.create_all(eng)
+    s = sessionmaker(bind=eng)()
+    s.add_all([
+        ServiceCatalog(canonical_name="Глюкоза (в крови)", category="Анализы", synonyms=["глюкоза"]),
+        ServiceCatalog(canonical_name="Глюкоза в моче", category="Анализы", synonyms=["глюкоза мочи"]),
+    ])
+    s.commit()
+    names = [svc.canonical_name for svc in _rank_services(s, "Глюкоза", 3)]
+    assert "Глюкоза (в крови)" in names
+    assert "Глюкоза в моче" not in names  # мочевой вариант отсечён биоматериал-гардом
+    s.close()
