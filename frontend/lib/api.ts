@@ -77,6 +77,7 @@ export function search(params: SearchParams = {}, signal?: AbortSignal): Promise
     user_lng: params.user_lng,
     sort: params.sort,
     limit: params.limit ?? 20,
+    locale: params.locale,
   });
   return apiFetch<ServiceComparison[]>(`/api/search${query}`, { signal });
 }
@@ -96,6 +97,7 @@ export interface CompareOpts {
   user_lat?: number;
   user_lng?: number;
   sort?: SortOrder;
+  locale?: string;
 }
 
 export function compare(
@@ -112,6 +114,7 @@ export function compare(
     user_lat: opts.user_lat,
     user_lng: opts.user_lng,
     sort: opts.sort,
+    locale: opts.locale,
   });
   return apiFetch<ServiceComparison>(`/api/compare/${serviceId}${query}`, { signal });
 }

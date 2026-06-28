@@ -409,6 +409,7 @@ export interface ChatResponse {
 }
 
 export interface SearchParams {
+  locale?: string;
   q?: string;
   city?: string;
   category?: string;

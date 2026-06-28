@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ComparisonView from "@/components/ComparisonView";
@@ -18,9 +19,10 @@ export default async function ServicePage({
   const serviceId = id;
   if (!serviceId) notFound();
 
+  const locale = (await cookies()).get("locale")?.value === "kk" ? "kk" : "ru";
   let initial;
   try {
-    initial = await compare(serviceId, { city: city || undefined, sort: "price_asc" });
+    initial = await compare(serviceId, { city: city || undefined, sort: "price_asc", locale });
   } catch (e) {
     // 404 — услуга не найдена; 422 — невалидный uuid (старая/числовая ссылка
     // вроде /service/1 после перехода каталога на uuid). И то, и другое → 404-страница,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ApiError, compare, createLead, reportPrice, subscribePrice } from "@/lib/api";
 import { loadGeo, saveGeo } from "@/lib/geolocation";
+import { useT } from "@/lib/i18n";
 import { formatDate, formatPrice } from "@/lib/format";
 import type { PriceTrend, ServiceComparison, ServiceVariant, SortOrder } from "@/lib/types";
 import CategoryBadge from "./CategoryBadge";
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export default function ComparisonView({ serviceId, initial, cities, initialCity = "", highlightClinicId }: Props) {
+  const { locale } = useT();
   const [data, setData] = useState<ServiceComparison>(initial);
   const [city, setCity] = useState(initialCity);
   const [sort, setSort] = useState<SortOrder>("price_asc");
@@ -110,6 +112,7 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
           user_lat: sort === "distance" ? coords?.lat : undefined,
           user_lng: sort === "distance" ? coords?.lng : undefined,
           sort,
+          locale,
         },
         controller.signal,
       );
@@ -120,7 +123,7 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [serviceId, city, minPrice, maxPrice, minRating, onlineOnly, sort, coords, priceCeiling]);
+  }, [serviceId, city, minPrice, maxPrice, minRating, onlineOnly, sort, coords, priceCeiling, locale]);
 
   useEffect(() => {
     if (firstRun.current) {

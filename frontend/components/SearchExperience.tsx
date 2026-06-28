@@ -19,7 +19,7 @@ export default function SearchExperience({
   categories,
   initialResults,
 }: Props) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [query, setQuery] = useState("");
   const [city, setCity] = useState("");
   const [category, setCategory] = useState("");
@@ -85,6 +85,7 @@ export default function SearchExperience({
           sort,
           user_lat: coords?.lat,
           user_lng: coords?.lng,
+          locale,
           limit: hasFilters ? 30 : 12,
         },
         controller.signal,
@@ -96,7 +97,7 @@ export default function SearchExperience({
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [query, city, category, sort, coords]);
+  }, [query, city, category, sort, coords, locale]);
 
   // Дебаунс по всем фильтрам, кроме самой первой отрисовки (SSR данные уже есть).
   useEffect(() => {

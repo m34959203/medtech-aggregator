@@ -60,6 +60,10 @@ class ServiceCatalog(Base):
     # Краткое (1 предложение) пояснение «что это за услуга» для витрины — рядом с
     # названием в карточке/на странице услуги. Заполняется батч-скриптом (Gemini).
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Казахская локализация (двуязычие RU/KK): KK-название и KK-описание для витрины.
+    # Заполняются батч-скриптом (Gemini). Пусто → витрина деградирует к RU.
+    name_kk: Mapped[str] = mapped_column(Text, default="", server_default="")
+    description_kk: Mapped[str] = mapped_column(Text, default="", server_default="")
     # MedArchive: целевой справочник организаторов — код тарификатора (A02.004.000)
     # и специальность. Маппинг по коду даёт 100%-сопоставление без fuzzy.
     tarificator_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)

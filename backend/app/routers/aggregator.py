@@ -197,7 +197,7 @@ def list_services(
 def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sort,
                       *, min_price=None, min_rating=None, online_booking=None,
                       user_lat=None, user_lng=None, include_stale: bool = False,
-                      with_variants: bool = False) -> ServiceComparison:
+                      with_variants: bool = False, locale: str | None = None) -> ServiceComparison:
     q = (
         db.query(Price, Clinic)
         .join(Clinic, Price.clinic_id == Clinic.id)
@@ -277,8 +277,8 @@ def _build_comparison(db: Session, service: ServiceCatalog, city, max_price, sor
     prices = [o.price for o in offers] or [0.0]
     return ServiceComparison(
         service_id=service.id,
-        canonical_name=service.canonical_name,
-        description=service.description or "",
+        canonical_name=(service.name_kk if (locale == "kk" and service.name_kk) else service.canonical_name),
+        description=(service.description_kk if (locale == "kk" and service.description_kk) else (service.description or "")),
         category=service.category,
         category_enum=category_enum.to_enum(service.category, service.specialty, service.canonical_name),
         offers_count=len(offers),
@@ -303,6 +303,7 @@ def compare(
     user_lat: float | None = None,
     user_lng: float | None = None,
     sort: str = Query("price_asc", pattern="^(price_asc|price_desc|updated|distance)$"),
+    locale: str | None = None,
     db: Session = Depends(get_db),
 ):
     service = db.get(ServiceCatalog, service_id)
@@ -311,7 +312,7 @@ def compare(
     return _build_comparison(
         db, service, city, max_price, sort, min_price=min_price, min_rating=min_rating,
         online_booking=online_booking, user_lat=user_lat, user_lng=user_lng,
-        with_variants=True,
+        with_variants=True, locale=locale,
     )
 
 
@@ -584,6 +585,7 @@ def search(
     user_lng: float | None = None,
     sort: str = "price_asc",
     limit: int = 20,
+    locale: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Поиск услуг + сводка сравнения по каждой (для главной витрины)."""
@@ -605,6 +607,7 @@ def search(
         cmp = _build_comparison(
             db, svc, city, max_price, sort, min_price=min_price, min_rating=min_rating,
             online_booking=online_booking, user_lat=user_lat, user_lng=user_lng,
+            locale=locale,
         )
         if cmp.offers_count > 0:
             results.append(cmp)

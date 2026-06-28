@@ -12,4 +12,7 @@
 | `backfill_geocode.py` | геокодирование адресов клиник |
 | `remap_uuid.py` | разовый перенос int→uuid идентификаторов |
 
-Запуск (из каталога `backend/`): `python scripts/<name>.py [--apply]`.
+Запуск (из каталога `backend/`): `PYTHONPATH=. python scripts/<name>.py [--apply]`
+(в контейнере: `docker exec -w /app -e PYTHONPATH=/app medtech-backend python scripts/<name>.py --apply`).
+
+`generate_kk.py` — перевод каталога на казахский (name_kk/description_kk).
