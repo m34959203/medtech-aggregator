@@ -8,7 +8,7 @@ import re
 import zipfile
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -417,11 +417,16 @@ async def preview_normalization_file(file: UploadFile = File(...), db: Session =
 
 
 @router.post("/run-scheduled", dependencies=[Depends(require_admin)])
-def run_scheduled():
-    """Запустить автосбор по всем включённым pull-источникам (web_scrape/api)."""
+def run_scheduled(background: BackgroundTasks):
+    """Запустить автосбор по всем включённым pull-источникам (web_scrape/api).
+
+    Десятки источников сканируются минутами → синхронный ответ рвался по таймауту
+    прокси (500). Запускаем В ФОНЕ (Starlette гонит sync-таск в threadpool) и сразу
+    отвечаем; результат виден в журнале прогонов (дашборд авто-обновляется)."""
     from ..scheduler import run_all_sources
 
-    return {"report": run_all_sources()}
+    background.add_task(run_all_sources)
+    return {"status": "started"}
 
 
 @router.get("/runs", response_model=list[IngestionRunOut], dependencies=[Depends(require_admin)])

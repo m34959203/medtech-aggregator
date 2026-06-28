@@ -225,7 +225,7 @@ export function scrapeSite(clinicId: string, url: string, dynamic = false): Prom
 }
 
 // §3.1: ручной запуск планового сбора по всем включённым pull-источникам.
-export type RunScheduledResult = { report: Array<Record<string, unknown>> };
+export type RunScheduledResult = { status?: string; report?: Array<Record<string, unknown>> };
 export function runScheduled(): Promise<RunScheduledResult> {
   return apiFetch<RunScheduledResult>("/api/ingest/run-scheduled", { method: "POST" });
 }

@@ -418,9 +418,10 @@ function ScrapeCard({ onDone, partners }: { onDone: () => void; partners: Partne
     setErr(null);
     setMsg(null);
     try {
-      const r = await runScheduled();
-      setMsg(`Плановый сбор завершён: источников обработано ${r.report.length}.`);
-      onDone();
+      await runScheduled();
+      setMsg("Плановый сбор запущен в фоне — результаты появятся в журнале прогонов (обновляется автоматически).");
+      // дашборд подтянет новые прогоны на следующем авто-рефреше
+      setTimeout(onDone, 4000);
     } catch (e) {
       setErr(e instanceof ApiError ? `Ошибка: ${e.message}` : "Не удалось запустить сбор.");
     } finally {
