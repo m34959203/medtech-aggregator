@@ -551,7 +551,7 @@ function ExportCard() {
 function BatchUploadCard({ onDone, partners }: { onDone: () => void; partners: Partner[] }) {
   const [files, setFiles] = useState<File[]>([]);
   const [clinicId, setClinicId] = useState("");
-  const [archiveMode, setArchiveMode] = useState(false);
+  const [archiveMode, setArchiveMode] = useState(true); // Кейс 2 (MedArchive) — по умолчанию
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
