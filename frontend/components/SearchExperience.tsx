@@ -216,24 +216,28 @@ function FilterBar(p: FilterProps) {
         </div>
 
         <div className="sm:col-span-4">
-          <select
-            value={p.category}
-            onChange={(e) => p.onCategory(e.target.value)}
-            className="field appearance-none bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10"
-            style={{ backgroundImage: chevron }}
-            aria-label="Категория"
-          >
-            <option value="">Все категории</option>
-            {p.categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <SortToggle sort={p.sort} onSort={p.onSort} />
         </div>
 
-        <div className="sm:col-span-4">
-          <SortToggle sort={p.sort} onSort={p.onSort} />
+        {/* Категории чипами (дизайн МедЦена) */}
+        <div className="flex flex-wrap gap-2 sm:col-span-12">
+          {["", ...p.categories].map((c) => {
+            const active = p.category === c;
+            return (
+              <button
+                key={c || "all"}
+                type="button"
+                onClick={() => p.onCategory(c)}
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+                  active
+                    ? "bg-brand-600 text-white"
+                    : "border border-ink-200 bg-white text-ink-600 hover:border-brand-300 hover:text-brand-700"
+                }`}
+              >
+                {c || "Все категории"}
+              </button>
+            );
+          })}
         </div>
 
         <div className="sm:col-span-12">
