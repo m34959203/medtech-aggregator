@@ -87,19 +87,21 @@ export default function AdminPage() {
           </div>
           <RefreshControl updatedAt={updatedAt} refreshing={refreshing} onRefresh={refresh} />
         </div>
-        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm font-medium">
-          <Link href="/admin/review" className="text-brand-700 hover:underline">
-            → Очередь на проверку
-          </Link>
-          <Link href="/admin/sources" className="text-brand-700 hover:underline">
-            → Источники автосбора
-          </Link>
-          <Link href="/admin/whatsapp" className="text-brand-700 hover:underline">
-            → WhatsApp-туннель
-          </Link>
-          <Link href="/admin/normalizer" className="text-brand-700 hover:underline">
-            → Нормализатор
-          </Link>
+        <div className="mt-4 flex flex-wrap gap-2 text-sm font-medium">
+          {[
+            { href: "/admin/sources", label: "🌐 Источники и расписание" },
+            { href: "/admin/review", label: "✓ Очередь на проверку" },
+            { href: "/admin/whatsapp", label: "💬 WhatsApp-туннель" },
+            { href: "/admin/normalizer", label: "⚙ Нормализатор" },
+          ].map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className="rounded-full border border-ink-200 bg-white px-3.5 py-2 text-ink-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+            >
+              {l.label}
+            </Link>
+          ))}
         </div>
       </header>
 
@@ -335,7 +337,15 @@ function ScrapeCard({ onDone, partners }: { onDone: () => void; partners: Partne
 
   return (
     <div className="card p-5">
-      <h2 className="text-base font-semibold text-ink-900">Автосбор с сайта</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-base font-semibold text-ink-900">Автосбор с сайта</h2>
+        <Link
+          href="/admin/sources"
+          className="shrink-0 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 transition hover:bg-brand-100"
+        >
+          Источники и расписание →
+        </Link>
+      </div>
       <p className="mt-1 text-sm text-ink-500">
         Снять прайс с публичной страницы клиники (учитывает robots.txt) или запустить
         плановый сбор по всем включённым источникам — то же, что делает cron.
