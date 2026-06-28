@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ApiError, compare, createLead, reportPrice, subscribePrice } from "@/lib/api";
+import { ApiError, compare, reportPrice, subscribePrice } from "@/lib/api";
 import { loadGeo, saveGeo } from "@/lib/geolocation";
 import { useT } from "@/lib/i18n";
 import { formatDate, formatPrice } from "@/lib/format";
@@ -328,84 +328,6 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
         onRequestGeo={requestGeo}
       />
     </div>
-  );
-}
-
-function LeadButton({
-  serviceName,
-  offer,
-}: {
-  serviceName: string;
-  offer: import("@/lib/types").PriceOffer;
-}) {
-  const [open, setOpen] = useState(false);
-  const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
-
-  if (state === "done") {
-    return <p className="text-xs text-emerald-600">Заявка принята — клиника свяжется с вами.</p>;
-  }
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen(true);
-        }}
-        className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700"
-      >
-        Записаться
-      </button>
-    );
-  }
-  return (
-    <form
-      onClick={(e) => e.stopPropagation()}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (state === "sending") return;
-        setState("sending");
-        try {
-          await createLead({
-            clinic_id: offer.clinic_id,
-            clinic_name: offer.clinic_name,
-            service: serviceName,
-            price: offer.price,
-            name,
-            phone,
-          });
-          setState("done");
-        } catch {
-          setState("error");
-        }
-      }}
-      className="flex w-full flex-col gap-1.5 sm:w-56"
-    >
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Имя"
-        className="field py-1.5 text-sm"
-      />
-      <input
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
-        placeholder="Телефон*"
-        inputMode="tel"
-        required
-        className="field py-1.5 text-sm"
-      />
-      <button
-        type="submit"
-        disabled={state === "sending"}
-        className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
-      >
-        {state === "sending" ? "Отправляю…" : "Оставить заявку"}
-      </button>
-      {state === "error" && <p className="text-xs text-red-600">Проверьте телефон.</p>}
-    </form>
   );
 }
 
@@ -1064,7 +986,6 @@ function OfferRow({
               {offer.phone}
             </a>
           )}
-          <LeadButton serviceName={serviceName} offer={offer} />
         </div>
       </div>
     </li>

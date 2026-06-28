@@ -217,7 +217,7 @@ export default function ChatWidget() {
                               href={`/service/${o.service_id}?clinic=${o.clinic_id}`}
                               className="rounded-lg bg-brand-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-brand-700"
                             >
-                              Сравнить и записаться
+                              Сравнить цены
                             </Link>
                             {o.lat != null && o.lng != null && (
                               <a
