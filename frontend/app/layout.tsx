@@ -1,13 +1,11 @@
 import type { Metadata } from "next";
-import { Golos_Text } from "next/font/google";
+import { Inter } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import ChatWidget from "@/components/ChatWidget";
 import "./globals.css";
 
-// Дизайн «МедЦена» — шрифт Golos Text. Переменная оставлена как --font-inter,
-// чтобы не трогать ссылку в tailwind fontFamily.sans.
-const golos = Golos_Text({
+const inter = Inter({
   subsets: ["latin", "cyrillic"],
   variable: "--font-inter",
   display: "swap",
@@ -23,7 +21,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ru" className={golos.variable}>
+    <html lang="ru" className={inter.variable}>
       <body className="flex min-h-screen flex-col">
         <SiteHeader />
         <main className="flex-1">{children}</main>

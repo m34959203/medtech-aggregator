@@ -83,15 +83,34 @@ export default function ServiceCard({
       <div className="mt-auto flex items-end justify-between gap-3 border-t border-ink-100 pt-4">
         <div>
           <p className="text-xs text-ink-400">от</p>
-          <p className="text-[22px] font-extrabold tracking-tight text-ink-900">
+          <p className="text-xl font-bold tracking-tight text-ink-900">
             {formatPrice(service.min_price)}
           </p>
         </div>
-        {spread >= 5 && (
-          <span className="rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-bold text-brand-700">
-            −{spread}%
+        <div className="flex flex-col items-end gap-1">
+          {spread > 0 && (
+            <span className="text-xs font-medium text-brand-600">
+              экономия до {spread}%
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 transition group-hover:gap-2">
+            Сравнить
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              className="h-4 w-4"
+              aria-hidden
+            >
+              <path
+                d="M4 10h12m0 0-4-4m4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </span>
-        )}
+        </div>
       </div>
     </Link>
   );

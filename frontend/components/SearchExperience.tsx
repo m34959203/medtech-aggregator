@@ -192,17 +192,17 @@ interface FilterProps {
 
 function FilterBar(p: FilterProps) {
   return (
-    <div className="mx-auto max-w-6xl px-4 sm:px-6">
-      <div className="card relative z-10 space-y-4 p-4 sm:p-5">
-        {/* Поиск */}
-        <SearchAutocomplete query={p.query} onQuery={p.onQuery} />
+    <div className="mx-auto -mt-8 max-w-4xl px-4 sm:px-6">
+      <div className="card relative z-10 grid grid-cols-1 gap-3 p-3 sm:grid-cols-12 sm:items-center">
+        <div className="sm:col-span-12">
+          <SearchAutocomplete query={p.query} onQuery={p.onQuery} />
+        </div>
 
-        {/* Город + сортировка + геолокация */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="sm:col-span-4">
           <select
             value={p.city}
             onChange={(e) => p.onCity(e.target.value)}
-            className="field w-full appearance-none bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10 sm:w-56"
+            className="field appearance-none bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10"
             style={{ backgroundImage: chevron }}
             aria-label="Город"
           >
@@ -213,36 +213,36 @@ function FilterBar(p: FilterProps) {
               </option>
             ))}
           </select>
-          <SortToggle sort={p.sort} onSort={p.onSort} />
-          <div className="sm:ml-auto">
-            <GeoControl
-              hasGeo={p.hasGeo}
-              geoState={p.geoState}
-              onEnable={p.onEnableGeo}
-              onDisable={p.onDisableGeo}
-            />
-          </div>
         </div>
 
-        {/* Категории чипами (дизайн МедЦена) */}
-        <div className="flex flex-wrap gap-2">
-          {["", ...p.categories].map((c) => {
-            const active = p.category === c;
-            return (
-              <button
-                key={c || "all"}
-                type="button"
-                onClick={() => p.onCategory(c)}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
-                  active
-                    ? "bg-brand-600 text-white"
-                    : "border border-ink-200 bg-white text-ink-600 hover:border-brand-300 hover:text-brand-700"
-                }`}
-              >
-                {c || "Все категории"}
-              </button>
-            );
-          })}
+        <div className="sm:col-span-4">
+          <select
+            value={p.category}
+            onChange={(e) => p.onCategory(e.target.value)}
+            className="field appearance-none bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10"
+            style={{ backgroundImage: chevron }}
+            aria-label="Категория"
+          >
+            <option value="">Все категории</option>
+            {p.categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="sm:col-span-4">
+          <SortToggle sort={p.sort} onSort={p.onSort} />
+        </div>
+
+        <div className="sm:col-span-12">
+          <GeoControl
+            hasGeo={p.hasGeo}
+            geoState={p.geoState}
+            onEnable={p.onEnableGeo}
+            onDisable={p.onDisableGeo}
+          />
         </div>
       </div>
     </div>
