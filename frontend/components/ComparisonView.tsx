@@ -202,24 +202,24 @@ export default function ComparisonView({ serviceId, initial, cities, initialCity
 
       {/* Стат-полоса (дизайн МедЦена): минимальная / средняя / разница цен */}
       {offers.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-2xl bg-brand-600 p-5 text-white">
-            <div className="text-xs font-medium opacity-85">Минимальная цена</div>
-            <div className="mt-1.5 text-xl font-extrabold tracking-tight sm:text-2xl">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="rounded-xl bg-brand-600 p-3 text-white sm:rounded-2xl sm:p-5">
+            <div className="text-[11px] font-medium opacity-85 sm:text-xs">Минимальная цена</div>
+            <div className="mt-1 text-base font-extrabold tracking-tight sm:mt-1.5 sm:text-2xl">
               {formatPrice(data.min_price)}
             </div>
           </div>
-          <div className="card p-5">
-            <div className="text-xs font-medium text-ink-400">Средняя цена</div>
-            <div className="mt-1.5 text-xl font-extrabold tracking-tight text-ink-900 sm:text-2xl">
+          <div className="card p-3 sm:p-5">
+            <div className="text-[11px] font-medium text-ink-400 sm:text-xs">Средняя цена</div>
+            <div className="mt-1 text-base font-extrabold tracking-tight text-ink-900 sm:mt-1.5 sm:text-2xl">
               {formatPrice(
                 Math.round(offers.reduce((s, o) => s + o.price, 0) / offers.length),
               )}
             </div>
           </div>
-          <div className="card p-5">
-            <div className="text-xs font-medium text-ink-400">Разница цен</div>
-            <div className="mt-1.5 text-xl font-extrabold tracking-tight text-brand-700 sm:text-2xl">
+          <div className="card p-3 sm:p-5">
+            <div className="text-[11px] font-medium text-ink-400 sm:text-xs">Разница цен</div>
+            <div className="mt-1 text-base font-extrabold tracking-tight text-brand-700 sm:mt-1.5 sm:text-2xl">
               {formatPrice(data.max_price - data.min_price)}
             </div>
           </div>
