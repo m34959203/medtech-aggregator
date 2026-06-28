@@ -69,12 +69,10 @@ h2{font-family:var(--display);font-weight:700;line-height:1.04;letter-spacing:-.
 .cover .meta .team{font-family:var(--display);font-weight:700;color:#fff}
 .cover .meta .dot{width:.4em;height:.4em;border-radius:50%;background:var(--em-400)}
 .cover .meta .where{color:#BFE3DA}
-.partners{position:absolute;top:7%;right:6.5%;display:flex;gap:2.4vw;align-items:flex-end;z-index:6}
-.partners .grp{display:flex;flex-direction:column;gap:.55vw;align-items:flex-start}
-.partners .plabel{font-size:.64vw;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#9FD8CD}
-.partners .org-logo{height:2.3vw;width:auto;display:block;opacity:.96}
-.partners .spon-chip{display:grid;place-items:center;border-radius:.5vw;overflow:hidden;box-shadow:0 10px 26px -12px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18)}
-.partners .spon-chip img{height:2.7vw;width:auto;display:block}
+.partners{position:absolute;top:7.5%;right:6.5%;display:flex;gap:1.8vw;align-items:center;z-index:6}
+.partners .org-logo{height:3vw;width:auto;display:block;opacity:.96}
+.partners .spon-chip{display:grid;place-items:center;height:3vw;border-radius:.5vw;overflow:hidden;box-shadow:0 10px 26px -12px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18)}
+.partners .spon-chip img{height:3vw;width:auto;display:block}
 
 /* ---------- section header ---------- */
 .shead{display:flex;align-items:flex-end;justify-content:space-between;gap:2em;margin-bottom:2.4vw}
@@ -141,10 +139,9 @@ a.prodlink:hover{opacity:1;text-decoration:underline}
 .punch p{font-size:1vw;line-height:1.4;font-weight:600}
 .punch b{color:var(--em-300);font-family:var(--display);font-weight:600}
 .punch .extra{margin-left:auto;flex:none;font-size:.82vw;color:#9FD8CD;font-weight:500;max-width:24ch;line-height:1.35;border-left:1px solid rgba(255,255,255,.18);padding-left:1.2vw}
-.demo-grid{display:grid;grid-template-columns:1.4fr 1.4fr .86fr;grid-template-rows:1fr 1fr;gap:1vw;flex:1;min-height:0}
-.f-home{grid-column:1;grid-row:1}.f-service{grid-column:2;grid-row:1}
-.f-ocr{grid-column:1 / span 2;grid-row:2}
-.f-chat{grid-column:3;grid-row:1 / span 2}
+.demo-grid{display:grid;grid-template-columns:1.42fr 1.42fr .82fr;gap:1vw;flex:1;min-height:0}
+.f-home{grid-column:1}.f-service{grid-column:2}
+.f-chat{grid-column:3}
 .f-chat .shotwin img{object-fit:contain;object-position:top center;background:#1F8377}
 .tag.ai{background:var(--em-600);color:#fff}
 .frame{position:relative;display:flex;flex-direction:column;border-radius:1vw;overflow:hidden;border:1px solid var(--line);background:#fff;box-shadow:var(--shadow);cursor:zoom-in}
@@ -191,8 +188,8 @@ a.prodlink:hover{opacity:1;text-decoration:underline}
       <div class="glow" style="width:30%;height:40%;left:-6%;bottom:-10%;background:#0B6F66;opacity:.4"></div>
     </div>
     <div class="partners r r1">
-      <div class="grp"><span class="plabel">Организатор</span><img class="org-logo" src="organizer-logo.gif" alt="Организатор хакатона"></div>
-      <div class="grp"><span class="plabel">Спонсор</span><span class="spon-chip"><img src="sponsor-logo.png" alt="Спонсор — Nomad Insurance"></span></div>
+      <img class="org-logo" src="organizer-logo.gif" alt="Организатор хакатона">
+      <span class="spon-chip"><img src="sponsor-logo.png" alt="Спонсор — Nomad Insurance"></span>
     </div>
     <div class="brand r r1">
       <span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg></span>
@@ -331,8 +328,7 @@ a.prodlink:hover{opacity:1;text-decoration:underline}
     <div class="demo-grid">
       <div class="frame f-home r r3"><div class="shotwin"><img src="../screenshots/home-desktop.png" alt="Витрина — поиск услуг"></div><span class="tag">Кейс&nbsp;1 · Пациент</span><div class="cap"><b>Поиск и сравнение цен</b><span>Автодополнение · фильтры город/категория/цена · сортировки</span></div></div>
       <div class="frame f-service r r4"><div class="shotwin"><img src="../screenshots/service-desktop.png" alt="Карточка услуги"></div><span class="tag">Карточка услуги</span><div class="cap"><b>Мин. / средняя / разница цен</b><span>История цены · подписка на снижение · клиники на карте</span></div></div>
-      <div class="frame f-ocr r r5"><div class="shotwin"><img src="../screenshots/recipe-ocr.png" alt="OCR направления — распознавание услуг"></div><span class="tag ai">OCR · по рецепту</span><div class="cap"><b>Фото направления → распознаны 6 услуг → где дешевле</b><span>Минимум по разным клиникам · «всё в одной» · ссылка на лабораторию и карту</span></div></div>
-      <div class="frame f-chat r r6"><div class="shotwin"><img src="../screenshots/chat.png" alt="Чат-помощник — сравнение цен"></div><span class="tag ai">Чат · Gemini</span><div class="cap"><b>Чат-помощник</b><span>Отвечает ценами из базы · 🏆 дешевле · запись/маршрут</span></div></div>
+      <div class="frame f-chat r r5"><div class="shotwin"><img src="../screenshots/chat.png" alt="Чат-помощник — сравнение цен"></div><span class="tag ai">Чат · Gemini</span><div class="cap"><b>Чат-помощник</b><span>Отвечает ценами из базы · 🏆 дешевле · запись/маршрут</span></div></div>
     </div>
   </section>
 
