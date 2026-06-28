@@ -192,17 +192,17 @@ interface FilterProps {
 
 function FilterBar(p: FilterProps) {
   return (
-    <div className="mx-auto -mt-8 max-w-4xl px-4 sm:px-6">
-      <div className="card relative z-10 grid grid-cols-1 gap-3 p-3 sm:grid-cols-12 sm:items-center">
-        <div className="sm:col-span-12">
-          <SearchAutocomplete query={p.query} onQuery={p.onQuery} />
-        </div>
+    <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      <div className="card relative z-10 space-y-4 p-4 sm:p-5">
+        {/* Поиск */}
+        <SearchAutocomplete query={p.query} onQuery={p.onQuery} />
 
-        <div className="sm:col-span-4">
+        {/* Город + сортировка + геолокация */}
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={p.city}
             onChange={(e) => p.onCity(e.target.value)}
-            className="field appearance-none bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10"
+            className="field w-full appearance-none bg-[length:1.25rem] bg-[right_0.75rem_center] bg-no-repeat pr-10 sm:w-56"
             style={{ backgroundImage: chevron }}
             aria-label="Город"
           >
@@ -213,14 +213,19 @@ function FilterBar(p: FilterProps) {
               </option>
             ))}
           </select>
-        </div>
-
-        <div className="sm:col-span-4">
           <SortToggle sort={p.sort} onSort={p.onSort} />
+          <div className="sm:ml-auto">
+            <GeoControl
+              hasGeo={p.hasGeo}
+              geoState={p.geoState}
+              onEnable={p.onEnableGeo}
+              onDisable={p.onDisableGeo}
+            />
+          </div>
         </div>
 
         {/* Категории чипами (дизайн МедЦена) */}
-        <div className="flex flex-wrap gap-2 sm:col-span-12">
+        <div className="flex flex-wrap gap-2">
           {["", ...p.categories].map((c) => {
             const active = p.category === c;
             return (
@@ -238,15 +243,6 @@ function FilterBar(p: FilterProps) {
               </button>
             );
           })}
-        </div>
-
-        <div className="sm:col-span-12">
-          <GeoControl
-            hasGeo={p.hasGeo}
-            geoState={p.geoState}
-            onEnable={p.onEnableGeo}
-            onDisable={p.onDisableGeo}
-          />
         </div>
       </div>
     </div>
