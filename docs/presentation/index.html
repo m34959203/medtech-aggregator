@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>МедЦена — Команда №43 · Караганда 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F4F7F5; --ink:#16241F; --muted:#5B6E66;
+  --em-50:#E3F1EE; --em-100:#C9E7E0; --em-300:#7FC3B7; --em-400:#3FA99B;
+  --em-500:#168E81; --em-600:#0F8A7E; --em-700:#0B6F66; --em-800:#08463F; --em-950:#042925;
+  --line:rgba(16,36,31,.10);
+  --card:#FFFFFF;
+  --shadow:0 1px 2px rgba(8,70,63,.04), 0 24px 60px -28px rgba(8,70,63,.30);
+  --display:'Unbounded',system-ui,sans-serif;
+  --body:'Manrope',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:#06120F;color:var(--ink);font-family:var(--body);
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+}
+/* ---------- stage: fixed 16:9 scaled to viewport ---------- */
+.stage{position:relative;width:100vw;height:56.25vw;max-height:100vh;max-width:177.78vh;overflow:hidden;background:var(--bg)}
+.slide{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .5s ease;
+  padding:5.2% 6.5%;display:flex;flex-direction:column;justify-content:center}
+.slide.is-active{opacity:1;visibility:visible}
+.slide.dark{background:radial-gradient(120% 120% at 78% 12%, #0B6F66 0%, #08463F 38%, #042925 78%);color:#F2FBF8}
+
+/* decorative layers — never catch clicks */
+.deco{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.grid-net{background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:64px 64px;opacity:.5}
+.dark .grid-net{background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px)}
+.glow{position:absolute;border-radius:50%;filter:blur(60px);opacity:.55}
+
+/* ---------- kinetic reveal ---------- */
+.r{opacity:0;transform:translateY(18px);transition:opacity .6s cubic-bezier(.22,1,.36,1),transform .6s cubic-bezier(.22,1,.36,1)}
+.is-active .r{opacity:1;transform:none}
+.is-active .r1{transition-delay:.05s}.is-active .r2{transition-delay:.13s}
+.is-active .r3{transition-delay:.21s}.is-active .r4{transition-delay:.29s}
+.is-active .r5{transition-delay:.37s}.is-active .r6{transition-delay:.45s}
+
+/* ---------- brand bits ---------- */
+.brand{display:inline-flex;align-items:center;gap:.6em;font-family:var(--display);font-weight:700;letter-spacing:-.02em}
+.brand .mark{width:1.7em;height:1.7em;border-radius:.5em;background:var(--em-600);display:grid;place-items:center;color:#fff;box-shadow:0 8px 22px -8px rgba(15,138,126,.7)}
+.brand .mark svg{width:62%;height:62%}
+.kicker{display:inline-flex;align-items:center;gap:.5em;font-weight:700;font-size:.82vw;letter-spacing:.14em;text-transform:uppercase;color:var(--em-600)}
+.dark .kicker{color:var(--em-300)}
+.kicker::before{content:"";width:.5em;height:.5em;border-radius:50%;background:currentColor}
+h1{font-family:var(--display);font-weight:800;line-height:1.02;letter-spacing:-.03em}
+h2{font-family:var(--display);font-weight:700;line-height:1.04;letter-spacing:-.025em;font-size:3vw}
+.lead{color:var(--muted);font-size:1.25vw;line-height:1.55;font-weight:500;max-width:46ch}
+.dark .lead{color:#BFE3DA}
+
+/* ---------- SLIDE 1 cover ---------- */
+.cover{align-items:flex-start}
+.cover .brand{font-size:1.8vw}
+.cover h1{font-size:6.4vw;margin:.18em 0 .14em}
+.cover h1 .accent{color:var(--em-300)}
+.badge{display:inline-flex;align-items:center;gap:.6em;padding:.55em 1em;border-radius:999px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);font-weight:700;font-size:1vw;backdrop-filter:blur(6px)}
+.badge b{color:var(--em-300)}
+.cover .meta{position:absolute;left:6.5%;bottom:11.5%;display:flex;align-items:center;gap:1.4em;font-weight:600;font-size:1.1vw}
+.cover .meta .team{font-family:var(--display);font-weight:700;color:#fff}
+.cover .meta .dot{width:.4em;height:.4em;border-radius:50%;background:var(--em-400)}
+.cover .meta .where{color:#BFE3DA}
+.partners{position:absolute;top:7%;right:6.5%;display:flex;gap:2.4vw;align-items:flex-end;z-index:6}
+.partners .grp{display:flex;flex-direction:column;gap:.55vw;align-items:flex-start}
+.partners .plabel{font-size:.64vw;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#9FD8CD}
+.partners .org-logo{height:2.3vw;width:auto;display:block;opacity:.96}
+.partners .spon-chip{display:grid;place-items:center;border-radius:.5vw;overflow:hidden;box-shadow:0 10px 26px -12px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18)}
+.partners .spon-chip img{height:2.7vw;width:auto;display:block}
+
+/* ---------- section header ---------- */
+.shead{display:flex;align-items:flex-end;justify-content:space-between;gap:2em;margin-bottom:2.4vw}
+.shead .no{font-family:var(--display);font-weight:600;font-size:1vw;color:var(--em-600);opacity:.7}
+
+/* ---------- SLIDE 2 pipeline ---------- */
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:1.1vw;align-items:stretch}
+.step{position:relative;background:var(--card);border:1px solid var(--line);border-radius:1.1vw;padding:1.5vw 1.3vw;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:.7vw}
+.step .ic{width:2.9vw;height:2.9vw;border-radius:.8vw;background:var(--em-50);color:var(--em-700);display:grid;place-items:center}
+.step .ic svg{width:1.5vw;height:1.5vw}
+.step .n{font-family:var(--display);font-weight:600;font-size:.78vw;color:var(--em-500)}
+.step h3{font-size:1.12vw;font-weight:800;line-height:1.15;letter-spacing:-.01em}
+.step p{font-size:.86vw;color:var(--muted);line-height:1.4;font-weight:500}
+.step .arrow{position:absolute;right:-1.05vw;top:50%;transform:translateY(-50%);z-index:2;color:var(--em-300);font-size:1.3vw;font-weight:800}
+.step:last-child .arrow{display:none}
+.flow .accent-step{background:linear-gradient(160deg,var(--em-600),var(--em-800));color:#EAFBF6;border-color:transparent}
+.accent-step .ic{background:rgba(255,255,255,.15);color:#fff}
+.accent-step .n{color:var(--em-100)}.accent-step p{color:#CFEEE7}
+.note{margin-top:2vw;display:inline-flex;align-items:center;gap:.7em;padding:.7em 1.1em;border-radius:999px;background:var(--em-50);border:1px solid var(--em-100);color:var(--em-800);font-weight:700;font-size:1vw}
+
+/* ---------- SLIDE 3 resources ---------- */
+.res{display:grid;grid-template-columns:repeat(4,1fr);gap:1.2vw}
+.rescard{background:var(--card);border:1px solid var(--line);border-radius:1.1vw;padding:1.6vw 1.4vw;box-shadow:var(--shadow)}
+.rescard .lbl{font-family:var(--display);font-weight:600;font-size:.78vw;letter-spacing:.06em;text-transform:uppercase;color:var(--em-600);margin-bottom:1vw;display:flex;align-items:center;gap:.5em}
+.rescard ul{list-style:none;display:flex;flex-direction:column;gap:.7vw}
+.rescard li{font-size:1vw;font-weight:600;display:flex;align-items:flex-start;gap:.55em;line-height:1.3}
+.rescard li::before{content:"";margin-top:.55em;flex:none;width:.42em;height:.42em;border-radius:2px;background:var(--em-400);transform:rotate(45deg)}
+.rescard li span{color:var(--muted);font-weight:500}
+.prodbar{margin-top:2vw;display:flex;align-items:center;gap:1.2em;padding:1.1vw 1.5vw;border-radius:1vw;background:var(--em-950);color:#EAFBF6}
+.prodbar .live{display:inline-flex;align-items:center;gap:.5em;font-weight:700;font-size:.95vw;color:var(--em-300)}
+.prodbar .live .pulse{width:.6em;height:.6em;border-radius:50%;background:#34D399;box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 1.8s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 .7em rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+.prodbar .url{font-family:var(--display);font-weight:600;font-size:1.3vw}
+a.url,a.prodlink{text-decoration:none;color:inherit;transition:opacity .2s,color .2s}
+a.url:hover{color:var(--em-300)}
+a.prodlink:hover{opacity:1;text-decoration:underline}
+.prodbar .seg{margin-left:auto;display:flex;gap:1.4em;font-weight:600;font-size:.95vw;color:#9FD8CD}
+.prodbar .seg b{color:#fff}
+
+/* ---------- SLIDE 4 results ---------- */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1.2vw;margin-bottom:1.8vw}
+.metric{background:var(--card);border:1px solid var(--line);border-radius:1.2vw;padding:1.7vw 1.5vw;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.metric:first-child{background:linear-gradient(160deg,var(--em-600),var(--em-800));color:#fff;border-color:transparent}
+.metric .big{font-family:var(--display);font-weight:700;font-size:3.3vw;line-height:1;letter-spacing:-.03em}
+.metric .cap{margin-top:.5vw;font-weight:600;font-size:1vw;color:var(--muted)}
+.metric:first-child .cap{color:#CFEEE7}
+.resfoot{display:grid;grid-template-columns:1.5fr 1fr;gap:1.2vw}
+.proof{background:var(--em-950);color:#EAFBF6;border-radius:1.2vw;padding:1.7vw 1.8vw;display:flex;flex-direction:column;gap:1vw}
+.proof .ttl{font-family:var(--display);font-weight:600;font-size:1.05vw;color:#fff;display:flex;align-items:center;gap:.6em}
+.proof .bar{height:.8vw;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;position:relative}
+.proof .bar i{position:absolute;inset:0 28% 0 0;border-radius:999px;background:linear-gradient(90deg,var(--em-400),#34D399)}
+.proof .barwrap{display:flex;align-items:center;gap:1em}
+.proof .pct{font-family:var(--display);font-weight:700;font-size:1.8vw;color:#34D399}
+.proof small{color:#9FD8CD;font-size:.9vw;font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:.7vw;align-content:flex-start}
+.chip{padding:.7vw 1.1vw;border-radius:.8vw;background:var(--card);border:1px solid var(--line);font-weight:700;font-size:.95vw;box-shadow:var(--shadow);display:flex;align-items:center;gap:.5em;color:var(--em-800)}
+.chip svg{width:1.1vw;height:1.1vw;color:var(--em-500)}
+
+/* ---------- SLIDE 5 demo ---------- */
+.punch{display:flex;align-items:center;gap:1em;padding:1vw 1.4vw;border-radius:1vw;margin-bottom:1.1vw;
+  background:linear-gradient(120deg,var(--em-950),var(--em-800));color:#EAFBF6;flex:none}
+.punch .ic{flex:none;width:2.3vw;height:2.3vw;border-radius:.65vw;background:rgba(255,255,255,.12);display:grid;place-items:center;color:var(--em-300)}
+.punch .ic svg{width:1.2vw;height:1.2vw}
+.punch p{font-size:1vw;line-height:1.4;font-weight:600}
+.punch b{color:var(--em-300);font-family:var(--display);font-weight:600}
+.punch .extra{margin-left:auto;flex:none;font-size:.82vw;color:#9FD8CD;font-weight:500;max-width:24ch;line-height:1.35;border-left:1px solid rgba(255,255,255,.18);padding-left:1.2vw}
+.demo-grid{display:grid;grid-template-columns:1.5fr 1.5fr .82fr .82fr;gap:1vw;flex:1;min-height:0}
+.frame{position:relative;display:flex;flex-direction:column;border-radius:1vw;overflow:hidden;border:1px solid var(--line);background:#fff;box-shadow:var(--shadow);cursor:zoom-in}
+.frame .shotwin{flex:1;min-height:0;position:relative;overflow:hidden;background:#EEF3F1}
+.frame img{width:100%;height:100%;object-fit:cover;object-position:top center;display:block;transition:transform .6s ease}
+.frame:hover img{transform:scale(1.04)}
+.frame .cap{flex:none;background:#fff;border-top:1px solid var(--line);padding:.7vw .95vw .8vw}
+.frame .cap b{font-family:var(--display);font-weight:600;font-size:.86vw;display:block;color:var(--ink);letter-spacing:-.01em}
+.frame .cap span{font-size:.72vw;color:var(--muted);font-weight:500}
+.frame .tag{position:absolute;top:.7vw;left:.7vw;z-index:3;padding:.34em .8em;border-radius:999px;font-weight:700;font-size:.68vw;
+  background:rgba(255,255,255,.94);color:var(--em-700);box-shadow:0 4px 12px -4px rgba(8,70,63,.4)}
+.frame:hover::after{content:"⤢";position:absolute;top:.7vw;right:.7vw;z-index:3;width:1.8vw;height:1.8vw;display:grid;place-items:center;border-radius:50%;font-size:.9vw;font-weight:700;background:var(--em-600);color:#fff}
+
+/* ---------- chrome: progress, counter, nav ---------- */
+.progress{position:absolute;top:0;left:0;height:3px;background:var(--em-500);z-index:60;transition:width .4s ease}
+.counter{position:absolute;right:6.5%;bottom:5.4%;font-weight:700;font-size:.9vw;color:var(--muted);z-index:60;font-variant-numeric:tabular-nums}
+.dark .counter,.slide.dark ~ .counter{color:#9FD8CD}
+.counter b{color:var(--em-600);font-family:var(--display)}
+.nav{position:absolute;left:6.5%;bottom:5%;display:flex;gap:.5em;z-index:60}
+.nav button{width:2.4vw;height:2.4vw;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.7);color:var(--em-800);cursor:pointer;font-size:1vw;display:grid;place-items:center;transition:.2s;backdrop-filter:blur(4px)}
+.nav button:hover{background:var(--em-600);color:#fff;border-color:transparent}
+
+/* ---------- lightbox ---------- */
+.lightbox{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;background:rgba(4,18,15,.9);backdrop-filter:blur(10px);cursor:zoom-out}
+.lightbox.open{display:flex;animation:lbfade .26s both}
+.lightbox img{max-width:92vw;max-height:88vh;border-radius:12px;box-shadow:0 40px 120px -30px rgba(0,0,0,.7);animation:lbzoom .32s both}
+.lightbox .x{position:absolute;top:22px;right:26px;color:#fff;font-size:30px;font-weight:300;cursor:pointer;opacity:.85}
+@keyframes lbfade{from{opacity:0}to{opacity:1}}
+@keyframes lbzoom{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+
+.hint{position:absolute;left:50%;bottom:2.2%;transform:translateX(-50%);z-index:60;font-size:.78vw;color:var(--muted);font-weight:600;opacity:.7;letter-spacing:.02em}
+.dark ~ .hint{color:#7FB9AE}
+@media (max-width:760px){.lead,.metric .cap{font-size:2.6vw}}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+  <!-- ============ SLIDE 1 — COVER ============ -->
+  <section class="slide dark cover is-active">
+    <div class="deco">
+      <div class="grid-net"></div>
+      <div class="glow" style="width:46%;height:60%;right:-8%;top:-12%;background:#168E81"></div>
+      <div class="glow" style="width:30%;height:40%;left:-6%;bottom:-10%;background:#0B6F66;opacity:.4"></div>
+    </div>
+    <div class="partners r r1">
+      <div class="grp"><span class="plabel">Организатор</span><img class="org-logo" src="organizer-logo.gif" alt="Организатор хакатона"></div>
+      <div class="grp"><span class="plabel">Спонсор</span><span class="spon-chip"><img src="sponsor-logo.png" alt="Спонсор — Nomad Insurance"></span></div>
+    </div>
+    <div class="brand r r1">
+      <span class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg></span>
+      <span>Мед<span style="color:var(--em-300)">Цена</span></span>
+    </div>
+    <h1 class="r r2">Сравните цены<br>на медуслуги<br><span class="accent">по всему Казахстану</span></h1>
+    <p class="lead r r3" style="margin-bottom:1.4vw">Агрегатор цен на медицинские услуги <b style="color:#EAFBF6">+</b> система обработки архива прайсов клиник. Один продукт, закрывающий оба кейса хакатона.</p>
+    <span class="badge r r4">Решение <b>Кейс&nbsp;1</b> &nbsp;+&nbsp; <b>Кейс&nbsp;2</b></span>
+    <div class="meta r r5">
+      <span class="team">Команда&nbsp;№43</span>
+      <span class="dot"></span>
+      <span class="where">Караганда&nbsp;2026&nbsp;г.</span>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 2 — WHAT WE DID ============ -->
+  <section class="slide">
+    <div class="deco"><div class="grid-net"></div></div>
+    <div class="shead r r1">
+      <div>
+        <span class="kicker">Краткое описание</span>
+        <h2 style="margin-top:.4em">Что сделали — один сквозной конвейер</h2>
+      </div>
+      <span class="no">01 / 02</span>
+    </div>
+    <div class="flow">
+      <div class="step r r2">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0l-4 4m4-4l4 4M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="n">01 — Приём</div>
+        <h3>Сбор из любого источника</h3>
+        <p>Файл (PDF · скан · DOCX · XLSX · ZIP), сайт клиники / 103.kz, API.</p>
+        <span class="arrow">→</span>
+      </div>
+      <div class="step r r3">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <div class="n">02 — Парсинг</div>
+        <h3>Система читает данные</h3>
+        <p>Таблицы, сканы (OCR rus/kaz/eng), HTML-страницы и JSON → позиции.</p>
+        <span class="arrow">→</span>
+      </div>
+      <div class="step accent-step r r4">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 16l-4.9 2.6.9-5.5-4-3.9 5.5-.8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
+        <div class="n">03 — Ядро</div>
+        <h3>Нормализация к справочнику</h3>
+        <p>code-first + fuzzy + LLM + дедуп. 6 названий → одна услуга.</p>
+        <span class="arrow">→</span>
+      </div>
+      <div class="step r r5">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M3 3h18v14H3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <div class="n">04 — Витрина</div>
+        <h3>Публичный агрегатор</h3>
+        <p>Услуга появляется в сравнении цен по клиникам и городам.</p>
+        <span class="arrow">→</span>
+      </div>
+      <div class="step r r6">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <div class="n">05 — Пациент</div>
+        <h3>Сравнивает и выбирает</h3>
+        <p>Где дешевле и ближе к дому — с источником каждой цены.</p>
+        <span class="arrow">→</span>
+      </div>
+    </div>
+    <span class="note r r6"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Два канала приёма — push-загрузка клиники и pull-автосбор (сайты&nbsp;/&nbsp;API). Кейс&nbsp;1 (агрегатор) и Кейс&nbsp;2 (архив прайсов) — одна платформа.</span>
+  </section>
+
+  <!-- ============ SLIDE 3 — RESOURCES ============ -->
+  <section class="slide">
+    <div class="deco"><div class="grid-net"></div></div>
+    <div class="shead r r1">
+      <div>
+        <span class="kicker">Какие ресурсы использовали</span>
+        <h2 style="margin-top:.4em">Технологический стек</h2>
+      </div>
+      <span class="no">02 / 02</span>
+    </div>
+    <div class="res">
+      <div class="rescard r r2">
+        <div class="lbl">Backend</div>
+        <ul>
+          <li>FastAPI <span>· Python</span></li>
+          <li>PostgreSQL&nbsp;16</li>
+          <li>pgvector <span>· векторный матчинг</span></li>
+          <li>Docker</li>
+        </ul>
+      </div>
+      <div class="rescard r r3">
+        <div class="lbl">Frontend</div>
+        <ul>
+          <li>Next.js&nbsp;15 <span>· SSR</span></li>
+          <li>Витрина пациента</li>
+          <li>Кабинет оператора</li>
+          <li>Адаптив + мобайл</li>
+        </ul>
+      </div>
+      <div class="rescard r r4">
+        <div class="lbl">AI&nbsp;/&nbsp;ML</div>
+        <ul>
+          <li>Gemini&nbsp;2.5-flash <span>· Vertex AI</span></li>
+          <li>Нормализация + чат-помощник</li>
+          <li>OCR tesseract <span>rus/kaz/eng</span></li>
+          <li>fastembed <span>· эмбеддинги</span></li>
+        </ul>
+      </div>
+      <div class="rescard r r5">
+        <div class="lbl">Интеграции</div>
+        <ul>
+          <li>Яндекс.Карты <span>· гео клиник</span></li>
+          <li>WhatsApp <span>· координаты</span></li>
+          <li>OpenAPI&nbsp;/&nbsp;Swagger</li>
+          <li>Версионирование цен</li>
+        </ul>
+      </div>
+    </div>
+    <div class="prodbar r r6">
+      <span class="live"><span class="pulse"></span>Живой прод</span>
+      <a class="url" href="https://medtech.technokod.kz" target="_blank" rel="noopener">medtech.technokod.kz</a>
+      <span class="seg"><span><b>/</b> витрина пациента</span><span><b>/admin</b> оператор</span><span><b>/docs</b> OpenAPI</span></span>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 4 — DEMO ============ -->
+  <section class="slide">
+    <div class="deco"><div class="grid-net"></div></div>
+    <div class="shead r r1" style="margin-bottom:1.4vw">
+      <div>
+        <span class="kicker">Демонстрация прототипа</span>
+        <h2 style="margin-top:.4em">Живой продукт — кликните, чтобы рассмотреть</h2>
+      </div>
+      <a class="no prodlink" href="https://medtech.technokod.kz" target="_blank" rel="noopener" style="opacity:.95;color:var(--em-700);font-size:1.05vw">medtech.technokod.kz ↗</a>
+    </div>
+    <div class="punch r r2">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M3 7h12M3 12h18M3 17h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+      <p>6 клиник прислали одну услугу под&nbsp;6 разными названиями&nbsp;→ на витрине это <b>одна строка</b> с сортировкой по цене.</p>
+      <span class="extra">+ чат-помощник: фото направления → OCR → цены. Оператор: ZIP-архив → авто-нормализация.</span>
+    </div>
+    <div class="demo-grid">
+      <div class="frame r r3"><div class="shotwin"><img src="../screenshots/home-desktop.png" alt="Витрина — поиск услуг"></div><span class="tag">Кейс&nbsp;1 · Пациент</span><div class="cap"><b>Поиск и сравнение цен</b><span>Автодополнение · фильтры город/категория/цена · сортировки</span></div></div>
+      <div class="frame r r4"><div class="shotwin"><img src="../screenshots/service-desktop.png" alt="Карточка услуги"></div><span class="tag">Карточка услуги</span><div class="cap"><b>Мин. / средняя / разница цен</b><span>История цены · подписка на снижение · клиники на карте</span></div></div>
+      <div class="frame r r5"><div class="shotwin"><img src="../screenshots/home-mobile.png" alt="Мобильная версия — главная"></div><span class="tag">Мобайл</span><div class="cap"><b>Адаптив</b><span>Главная на телефоне</span></div></div>
+      <div class="frame r r6"><div class="shotwin"><img src="../screenshots/service-mobile.png" alt="Мобильная версия — услуга"></div><span class="tag">Мобайл</span><div class="cap"><b>В кармане</b><span>Карточка услуги</span></div></div>
+    </div>
+  </section>
+
+</div>
+
+<!-- chrome -->
+<div class="progress" id="progress"></div>
+<div class="counter" id="counter"><b>01</b> / 05</div>
+<div class="nav"><button id="prev" aria-label="Назад">‹</button><button id="next" aria-label="Вперёд">›</button></div>
+<div class="hint" id="hint">← → листать · клик по экрану — увеличить</div>
+
+<!-- lightbox -->
+<div class="lightbox" id="lb"><span class="x">✕</span><img id="lbImg" alt=""></div>
+
+<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.slide'));
+  var i=0, n=slides.length;
+  var progress=document.getElementById('progress');
+  var counter=document.getElementById('counter');
+  var stage=document.getElementById('stage');
+  var lb=document.getElementById('lb'), lbImg=document.getElementById('lbImg');
+  var hint=document.getElementById('hint');
+  function pad(x){return (x<10?'0':'')+x}
+  function show(k){
+    i=(k+n)%n;
+    slides.forEach(function(s,j){
+      s.classList.remove('is-active');
+      if(j===i){ void s.offsetWidth; s.classList.add('is-active'); }
+    });
+    progress.style.width=((i+1)/n*100)+'%';
+    counter.innerHTML='<b>'+pad(i+1)+'</b> / '+pad(n);
+    counter.style.color = slides[i].classList.contains('dark')?'#9FD8CD':'';
+    hint.style.opacity = i===0? '0.7':'0.45';
+  }
+  function next(){show(i+1)} function prev(){show(i-1)}
+  document.getElementById('next').onclick=next;
+  document.getElementById('prev').onclick=prev;
+
+  // lightbox
+  function openLb(img){lbImg.src=img.currentSrc||img.src;lb.classList.add('open');document.body.classList.add('lbopen')}
+  function closeLb(){lb.classList.remove('open');document.body.classList.remove('lbopen');lbImg.src=''}
+  stage.addEventListener('click',function(e){
+    var fr=e.target.closest('.frame');
+    if(fr){var im=fr.querySelector('img'); if(im){e.preventDefault();openLb(im)}}
+  });
+  lb.addEventListener('click',function(e){ if(e.target!==lbImg) closeLb(); });
+
+  // keyboard — guard nav when lightbox open
+  window.addEventListener('keydown',function(e){
+    if(document.body.classList.contains('lbopen')){ if(e.key==='Escape')closeLb(); return; }
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();next()}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prev()}
+    else if(e.key==='Home'){show(0)} else if(e.key==='End'){show(n-1)}
+  });
+  // swipe
+  var x0=null;
+  stage.addEventListener('touchstart',function(e){x0=e.touches[0].clientX},{passive:true});
+  stage.addEventListener('touchend',function(e){
+    if(x0===null||document.body.classList.contains('lbopen'))return;
+    var dx=e.changedTouches[0].clientX-x0;
+    if(Math.abs(dx)>50){dx<0?next():prev()} x0=null;
+  },{passive:true});
+
+  show(0);
+})();
+</script>
+</body>
+</html>

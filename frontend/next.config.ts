@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/api/:path*", destination: `${BACKEND}/api/:path*` },
       { source: "/health", destination: `${BACKEND}/health` },
+      // Питч-деск МедЦена (статический self-contained HTML в public/deck/)
+      { source: "/deck", destination: "/deck/index.html" },
     ];
   },
 };
