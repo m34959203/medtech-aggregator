@@ -434,6 +434,103 @@ def list_runs(limit: int = 50, db: Session = Depends(get_db)):
     return db.query(IngestionRun).order_by(IngestionRun.created_at.desc()).limit(limit).all()
 
 
+# --- §3.1: управление источниками автосбора (список сайтов для парсинга) ---
+class SourceIn(BaseModel):
+    clinic_id: uuid.UUID
+    type: str = "web_scrape"  # web_scrape | api
+    url: str
+    schedule: str | None = None
+
+
+class SourcePatch(BaseModel):
+    enabled: bool | None = None
+    url: str | None = None
+    schedule: str | None = None
+
+
+def _source_dict(db: Session, s: Source, counts: dict) -> dict:
+    clinic = db.get(Clinic, s.clinic_id)
+    return {
+        "id": s.id,
+        "clinic_id": str(s.clinic_id),
+        "clinic_name": clinic.name if clinic else None,
+        "type": s.type,
+        "url_or_endpoint": s.url_or_endpoint,
+        "schedule": s.schedule or "",
+        "enabled": bool(s.enabled),
+        "last_run_at": s.last_run_at.isoformat() if s.last_run_at else None,
+        "runs": int(counts.get(s.id, 0)),
+    }
+
+
+@router.get("/sources", dependencies=[Depends(require_admin)])
+def list_sources(db: Session = Depends(get_db)):
+    """Источники автосбора (web_scrape/api) — для управления списком сайтов."""
+    counts = dict(
+        db.query(IngestionRun.source_id, func.count(IngestionRun.id))
+        .group_by(IngestionRun.source_id).all()
+    )
+    srcs = (
+        db.query(Source)
+        .filter(Source.type != "upload")  # upload — не автосбор
+        .order_by(Source.enabled.desc(), Source.id)
+        .all()
+    )
+    return [_source_dict(db, s, counts) for s in srcs]
+
+
+@router.post("/sources", dependencies=[Depends(require_admin)])
+def create_source(body: SourceIn, db: Session = Depends(get_db)):
+    if body.type not in ("web_scrape", "api"):
+        raise HTTPException(400, "type: web_scrape | api")
+    if not body.url.strip():
+        raise HTTPException(400, "url обязателен")
+    if not db.get(Clinic, body.clinic_id):
+        raise HTTPException(404, "Клиника не найдена")
+    exists = (
+        db.query(Source)
+        .filter(Source.clinic_id == body.clinic_id, Source.type == body.type,
+                Source.url_or_endpoint == body.url.strip())
+        .first()
+    )
+    if exists:
+        raise HTTPException(409, "Такой источник уже есть")
+    src = Source(clinic_id=body.clinic_id, type=body.type,
+                 url_or_endpoint=body.url.strip(), schedule=(body.schedule or ""), enabled=True)
+    db.add(src)
+    db.commit()
+    db.refresh(src)
+    return _source_dict(db, src, {})
+
+
+@router.patch("/sources/{source_id}", dependencies=[Depends(require_admin)])
+def patch_source(source_id: int, body: SourcePatch, db: Session = Depends(get_db)):
+    src = db.get(Source, source_id)
+    if not src:
+        raise HTTPException(404, "Источник не найден")
+    if body.enabled is not None:
+        src.enabled = body.enabled
+    if body.url is not None:
+        src.url_or_endpoint = body.url.strip()
+    if body.schedule is not None:
+        src.schedule = body.schedule
+    db.commit()
+    return _source_dict(db, src, {})
+
+
+@router.delete("/sources/{source_id}", dependencies=[Depends(require_admin)])
+def delete_source(source_id: int, db: Session = Depends(get_db)):
+    src = db.get(Source, source_id)
+    if not src:
+        raise HTTPException(404, "Источник не найден")
+    # отвязываем прогоны (history сохраняем), затем удаляем источник
+    db.query(IngestionRun).filter(IngestionRun.source_id == source_id).update(
+        {IngestionRun.source_id: None}, synchronize_session=False)
+    db.delete(src)
+    db.commit()
+    return {"ok": True, "deleted": source_id}
+
+
 @router.get("/runs/{run_id}", dependencies=[Depends(require_admin)])
 def run_detail(run_id: int, db: Session = Depends(get_db)):
     """Деталь прогона: метаданные + все позиции (raw → нормализованное, статус,

@@ -236,7 +236,7 @@ export function catalogExportUrl(format: "xlsx" | "csv"): string {
 }
 
 // --- Спринт-2: ревью и лиды ---
-import type { ReviewQueue, RunDetail } from "./types";
+import type { IngestSource, ReviewQueue, RunDetail } from "./types";
 
 export function getReviewQueue(
   runId?: number,
@@ -263,6 +263,30 @@ export function reprocessRun(runId: number): Promise<unknown> {
 // Откат прогона: удалить цены, добавленные прогоном (деструктивно).
 export function rollbackRun(runId: number): Promise<{ deleted_prices: number }> {
   return apiFetch(`/api/ingest/runs/${runId}/rollback`, { method: "POST" });
+}
+
+// --- §3.1: источники автосбора (список сайтов для парсинга) ---
+const J = { Accept: "application/json", "Content-Type": "application/json" };
+
+export function getSources(signal?: AbortSignal): Promise<IngestSource[]> {
+  return apiFetch<IngestSource[]>("/api/ingest/sources", { signal });
+}
+export function createSource(body: {
+  clinic_id: string;
+  type: string;
+  url: string;
+  schedule?: string;
+}): Promise<IngestSource> {
+  return apiFetch("/api/ingest/sources", { method: "POST", headers: J, body: JSON.stringify(body) });
+}
+export function patchSource(
+  id: number,
+  body: { enabled?: boolean; url?: string; schedule?: string },
+): Promise<IngestSource> {
+  return apiFetch(`/api/ingest/sources/${id}`, { method: "PATCH", headers: J, body: JSON.stringify(body) });
+}
+export function deleteSource(id: number): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/ingest/sources/${id}`, { method: "DELETE" });
 }
 
 export function reviewPrice(

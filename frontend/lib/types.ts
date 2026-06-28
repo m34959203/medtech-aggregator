@@ -275,6 +275,19 @@ export interface ReviewQueue {
   reports: ReviewReport[];
 }
 
+// --- §3.1: источник автосбора (сайт для парсинга) ---
+export interface IngestSource {
+  id: number;
+  clinic_id: string;
+  clinic_name: string | null;
+  type: string; // web_scrape | api
+  url_or_endpoint: string;
+  schedule: string;
+  enabled: boolean;
+  last_run_at: string | null;
+  runs: number;
+}
+
 // --- Деталь прогона приёма (/admin/runs/{id}) ---
 export interface RunPosition {
   price_id: number;
