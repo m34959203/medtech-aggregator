@@ -278,7 +278,9 @@ def ingest_stats(db: Session = Depends(get_db)):
     )
     return {
         "clinics": db.query(func.count(Clinic.id)).scalar() or 0,
-        "cities": db.query(func.count(func.distinct(Clinic.city))).scalar() or 0,
+        # distinct city без пустых: иначе '' анонимных архив-клиник считался «городом» (+1).
+        "cities": db.query(func.count(func.distinct(Clinic.city)))
+        .filter(func.coalesce(Clinic.city, "") != "").scalar() or 0,
         "services": db.query(func.count(ServiceCatalog.id)).scalar() or 0,
         "prices": db.query(func.count(Price.id)).scalar() or 0,
         "runs": db.query(func.count(IngestionRun.id)).scalar() or 0,
