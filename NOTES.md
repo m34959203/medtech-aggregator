@@ -514,3 +514,11 @@ KDL branch-страницы (abay/baykonur/erkinkala/shayan) давали «го
 - **Расписание (cron)**: уже было — `scripts/cron-ingest.sh` каждые 6ч (`python -m app.scheduler` → run_all_sources по enabled). На странице блок «Автосбор каждые 6 часов · включено N из M · последний прогон» + «Запустить сейчас» (фоновый run-scheduled из #b562874). Смена интервала = правка crontab (ops); выбор сайтов из UI = тумблер enabled.
 - **Рефактор**: `ClinicPicker` вынесен в `components/ClinicPicker.tsx` (общий для /admin и /admin/sources).
 - Verify: tsc 0, build ок (+маршрут `/admin/sources`), 181 passed, ребилд backend+frontend. Прод: 75 источников (все enabled), PATCH/DELETE/auth проверены.
+
+## Чек-поинт 2026-06-28 (#57) — двуязычие RU/KK (фазы 1+3) + ИИ под язык
+- **Фундамент i18n** (`frontend/lib/i18n.tsx`): `LangProvider` (cookie `locale` + localStorage, SSR через `cookies()` в layout), `useT()`, `LanguageSwitcher` (Рус/Қаз). Шапка/футер/hero вынесены в клиентские компоненты.
+- **Витрина переведена** (фаза 1+ядро 2): шапка, футер, hero, поиск/плейсхолдер, фильтры, сортировка, гео, заголовки результатов, карточки, чат-виджет.
+- **ИИ под язык**: `POST /api/chat` принимает `locale` → system-prompt `_lang_rule` → Gemini отвечает RU/KK; vision тоже (`locale` form). Проверено: KK-запрос → KK-ответ.
+- **Фаза 3 — каталог на KK**: колонки `service_catalog.name_kk`/`description_kk` (alembic `f6a3d2c4b8e1`); `search`/`compare` принимают `?locale` → KK-название/описание (деградация к RU). Фронт шлёт locale (клиент из useT, **SSR из cookie** на главной и `/service/[id]`). `scripts/generate_kk.py` (Gemini, батч=20, объект `{items:[]}`) — **1588/1588 переведено, 0 сбоев**; у всех 1087 публичных услуг есть KK. Качество: «Общий анализ крови»→«Жалпы қан анализі», «Приём терапевта»→«Терапевт қабылдауы». Проверено: SSR `/service` с cookie=kk отдаёт KK-описание; скрин `docs/screenshots/home-kk-desktop.png`.
+- **Гоча**: `scripts/` в подкаталоге → запуск с `PYTHONPATH=/app`; `llm.json_completion` отдаёт объект (Gemini json_object) — просить `{"items":[...]}`, не голый массив.
+- **Долг (фаза 2 хвост + фаза 4)**: чипы категорий и счётчики «N услуг/клиник» (из данных/pluralize) ещё RU; страница услуги `ComparisonView` (фильтры/кнопки/панель сравнения), `/recipe`, подсказки чата; админка (внутренняя) — на KK следующими проходами.
