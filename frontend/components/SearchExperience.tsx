@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { search, suggest } from "@/lib/api";
 import { clearGeo, loadGeo, requestBrowserGeo, saveGeo } from "@/lib/geolocation";
+import { useT } from "@/lib/i18n";
 import type { ServiceComparison, SortOrder } from "@/lib/types";
 import ServiceCard, { nearestKm } from "./ServiceCard";
 import { CardGridSkeleton } from "./Skeletons";
@@ -18,6 +19,7 @@ export default function SearchExperience({
   categories,
   initialResults,
 }: Props) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const [city, setCity] = useState("");
   const [category, setCategory] = useState("");
@@ -139,7 +141,7 @@ export default function SearchExperience({
       <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
         <div className="mb-5 flex items-baseline justify-between gap-4">
           <h2 className="text-lg font-semibold text-ink-900">
-            {isPopular ? "Популярные услуги" : "Результаты поиска"}
+            {isPopular ? t("results.popular") : t("results.search")}
           </h2>
           {!loading && !error && (
             <span className="text-sm text-ink-400">
@@ -191,6 +193,7 @@ interface FilterProps {
 }
 
 function FilterBar(p: FilterProps) {
+  const { t } = useT();
   return (
     <div className="mx-auto -mt-8 max-w-4xl px-4 sm:px-6">
       <div className="card relative z-10 space-y-4 p-4 sm:p-5">
@@ -206,7 +209,7 @@ function FilterBar(p: FilterProps) {
             style={{ backgroundImage: chevron }}
             aria-label="Город"
           >
-            <option value="">Все города</option>
+            <option value="">{t("search.allCities")}</option>
             {p.cities.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -237,7 +240,7 @@ function FilterBar(p: FilterProps) {
                     : "border border-ink-200 bg-white text-ink-600 hover:border-brand-300 hover:text-brand-700"
                 }`}
               >
-                {c || "Все категории"}
+                {c || t("search.allCategories")}
               </button>
             );
           })}
@@ -258,6 +261,7 @@ function GeoControl({
   onEnable: () => void;
   onDisable: () => void;
 }) {
+  const { t } = useT();
   const pin = (
     <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
       <path d="M10 18s6-5.3 6-10A6 6 0 0 0 4 8c0 4.7 6 10 6 10Z" stroke="currentColor" strokeWidth="1.6" />
@@ -268,14 +272,14 @@ function GeoControl({
     return (
       <div className="flex items-center gap-2 text-sm">
         <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 font-medium text-brand-700 ring-1 ring-inset ring-brand-100">
-          {pin} Местоположение учтено — показываем расстояние
+          {pin} {t("geo.on")}
         </span>
         <button
           type="button"
           onClick={onDisable}
           className="text-ink-400 underline-offset-2 hover:text-ink-700 hover:underline"
         >
-          сбросить
+          {t("geo.reset")}
         </button>
       </div>
     );
@@ -289,11 +293,11 @@ function GeoControl({
         className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 font-medium text-ink-700 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-60"
       >
         {pin}
-        {geoState === "loading" ? "Определяем…" : "Рядом со мной — учесть расстояние"}
+        {geoState === "loading" ? t("geo.loading") : t("geo.enable")}
       </button>
       {geoState === "denied" && (
         <span className="text-xs text-ink-400">
-          Доступ к геолокации отклонён — разрешите его в браузере.
+          {t("geo.denied")}
         </span>
       )}
     </div>
@@ -307,6 +311,7 @@ function SearchAutocomplete({
   query: string;
   onQuery: (v: string) => void;
 }) {
+  const { t } = useT();
   const [items, setItems] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -396,7 +401,7 @@ function SearchAutocomplete({
             setOpen(false);
           }
         }}
-        placeholder="Например: МРТ головного мозга, УЗИ, приём кардиолога…"
+        placeholder={t("search.placeholder")}
         className="field pl-12 text-base"
         aria-label="Поиск медицинской услуги"
         role="combobox"
@@ -445,6 +450,7 @@ function SortToggle({
   sort: SortOrder;
   onSort: (v: SortOrder) => void;
 }) {
+  const { t } = useT();
   const btn = (value: SortOrder, label: string) => (
     <button
       type="button"
@@ -461,15 +467,16 @@ function SortToggle({
   );
   return (
     <div className="flex rounded-xl border border-ink-200 bg-white p-1 text-sm font-medium">
-      {btn("price_asc", "Дешевле")}
-      {btn("price_desc", "Дороже")}
+      {btn("price_asc", t("sort.cheaper"))}
+      {btn("price_desc", t("sort.pricier"))}
       {/* «Ближе» — учитывает расстояние; при выборе без чекпоинта спросит геолокацию */}
-      {btn("distance", "Ближе")}
+      {btn("distance", t("sort.closer"))}
     </div>
   );
 }
 
 function EmptyState() {
+  const { t } = useT();
   return (
     <div className="card flex flex-col items-center gap-3 px-6 py-16 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-500">
@@ -483,10 +490,9 @@ function EmptyState() {
           />
         </svg>
       </div>
-      <h3 className="text-base font-semibold text-ink-900">Ничего не нашлось</h3>
+      <h3 className="text-base font-semibold text-ink-900">{t("results.empty.title")}</h3>
       <p className="max-w-sm text-sm text-ink-500">
-        Попробуйте изменить запрос, выбрать другой город или сбросить фильтр
-        категории.
+        {t("results.empty.text")}
       </p>
     </div>
   );
@@ -499,6 +505,7 @@ function ErrorState({
   message: string;
   onRetry: () => void;
 }) {
+  const { t } = useT();
   return (
     <div className="card flex flex-col items-center gap-3 px-6 py-16 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-500">
@@ -512,10 +519,10 @@ function ErrorState({
           />
         </svg>
       </div>
-      <h3 className="text-base font-semibold text-ink-900">Что-то пошло не так</h3>
+      <h3 className="text-base font-semibold text-ink-900">{t("results.error.title")}</h3>
       <p className="max-w-sm text-sm text-ink-500">{message}</p>
       <button type="button" onClick={onRetry} className="btn-primary mt-2">
-        Повторить
+        {t("results.retry")}
       </button>
     </div>
   );

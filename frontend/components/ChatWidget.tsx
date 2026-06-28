@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { chat, chatVision, ApiError } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { formatPrice } from "@/lib/format";
 import type { ChatOffer } from "@/lib/types";
 
@@ -12,13 +13,6 @@ interface UIMessage {
   offers?: ChatOffer[];
   recognized?: string[]; // распознанные с фото услуги (OCR)
 }
-
-const GREETING: UIMessage = {
-  role: "assistant",
-  content:
-    "Здравствуйте! Я помощник МедЦена. Подскажу, где дешевле сделать анализ, " +
-    "УЗИ или попасть на приём врача. Что ищете?",
-};
 
 const SUGGESTIONS = [
   "Где дешевле общий анализ крови?",
@@ -38,9 +32,17 @@ const basketIds = (offers?: ChatOffer[]) =>
   Array.from(new Set((offers ?? []).map((o) => o.service_id))).filter(Boolean);
 
 export default function ChatWidget() {
+  const { t, locale } = useT();
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<UIMessage[]>([GREETING]);
+  const [messages, setMessages] = useState<UIMessage[]>(() => [
+    { role: "assistant", content: t("chat.greeting") },
+  ]);
   const [input, setInput] = useState("");
+  // обновляем приветствие при смене языка (если диалог ещё не начат)
+  useEffect(() => {
+    setMessages((prev) => (prev.length === 1 ? [{ role: "assistant", content: t("chat.greeting") }] : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +68,7 @@ export default function ChatWidget() {
       const payload = history
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role, content: m.content }));
-      const res = await chat(payload);
+      const res = await chat(payload, locale);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: res.reply, offers: res.offers },
@@ -88,7 +90,7 @@ export default function ChatWidget() {
     setMessages((prev) => [...prev, { role: "user", content: `📷 ${file.name}` }]);
     setLoading(true);
     try {
-      const res = await chatVision(file);
+      const res = await chatVision(file, undefined, locale);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: res.reply, offers: res.offers, recognized: res.recognized },
@@ -143,7 +145,7 @@ export default function ChatWidget() {
               </svg>
             </span>
             <div className="leading-tight">
-              <p className="text-sm font-semibold">Помощник МедЦена</p>
+              <p className="text-sm font-semibold">{t("chat.title")}</p>
               <p className="text-xs text-white/75">Поиск и сравнение цен на медуслуги</p>
             </div>
           </div>
@@ -318,7 +320,7 @@ export default function ChatWidget() {
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Спросите или пришлите фото направления…"
+              placeholder={t("chat.placeholder")}
               className="flex-1 rounded-full border border-ink-200 bg-ink-50 px-4 py-2.5 text-sm text-ink-800 outline-none transition focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
             <button

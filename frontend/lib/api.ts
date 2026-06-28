@@ -451,21 +451,26 @@ export function shareLocationWA(req: {
   });
 }
 
-export function chat(messages: ChatMessage[], signal?: AbortSignal): Promise<ChatResponse> {
+export function chat(
+  messages: ChatMessage[],
+  locale?: string,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
   return apiFetch<ChatResponse>("/api/chat", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, locale }),
     signal,
   });
 }
 
 // OCR в чате: фото/скан направления → распознавание услуг → ответ по витрине.
 // Content-Type не ставим вручную — браузер выставит multipart boundary сам.
-export function chatVision(file: File, city?: string): Promise<ChatResponse> {
+export function chatVision(file: File, city?: string, locale?: string): Promise<ChatResponse> {
   const form = new FormData();
   form.append("file", file);
   if (city) form.append("city", city);
+  if (locale) form.append("locale", locale);
   return apiFetch<ChatResponse>("/api/chat/vision", { method: "POST", body: form });
 }
 

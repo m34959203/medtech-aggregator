@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import CategoryBadge from "./CategoryBadge";
 import { formatPrice } from "@/lib/format";
 import { haversineKm, formatDistance } from "@/lib/distance";
+import { useT } from "@/lib/i18n";
 import type { ServiceComparison } from "@/lib/types";
 
 /** Расстояние до ближайшей клиники с этой услугой (по офферам), или null. */
@@ -35,6 +38,7 @@ export default function ServiceCard({
       ? Math.round(((service.max_price - service.min_price) / service.max_price) * 100)
       : 0;
   const distKm = nearestKm(service, userCoords);
+  const { t } = useT();
 
   // Переносим выбранный город на страницу услуги, чтобы фильтр не слетал.
   const href = city
@@ -53,7 +57,7 @@ export default function ServiceCard({
           {distKm != null && (
             <span
               className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-100"
-              title="До ближайшей клиники с этой услугой"
+              title={t("card.nearest")}
             >
               <svg viewBox="0 0 20 20" fill="none" className="h-3 w-3" aria-hidden>
                 <path d="M10 18s6-5.3 6-10A6 6 0 0 0 4 8c0 4.7 6 10 6 10Z" stroke="currentColor" strokeWidth="1.6" />
@@ -82,7 +86,7 @@ export default function ServiceCard({
 
       <div className="mt-auto flex items-end justify-between gap-3 border-t border-ink-100 pt-4">
         <div>
-          <p className="text-xs text-ink-400">от</p>
+          <p className="text-xs text-ink-400">{t("card.from")}</p>
           <p className="text-[22px] font-extrabold tracking-tight text-ink-900">
             {formatPrice(service.min_price)}
           </p>

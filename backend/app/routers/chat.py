@@ -44,6 +44,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
+    locale: str | None = None  # ru|kk — язык ответа ИИ
 
 
 class ChatOffer(BaseModel):
@@ -203,7 +204,7 @@ _SYSTEM = (
     "ПРАВИЛА:\n"
     "- Цены, клиники, адреса и телефоны бери ТОЛЬКО из блока РЕЗУЛЬТАТЫ ПОИСКА ниже. "
     "Никогда ничего не выдумывай и не добавляй клиник, которых там нет.\n"
-    "- Отвечай кратко и по-русски, явно называй самую выгодную клинику и цену в тенге.\n"
+    "- Отвечай кратко {lang}, явно называй самую выгодную клинику и цену в тенге.\n"
     "- Если в результатах пусто — честно скажи, что по запросу цен пока нет, и предложи "
     "уточнить название услуги.\n"
     "- Цены справочные: в конце ответа с ценами напомни уточнять стоимость в клинике.\n"
@@ -250,7 +251,11 @@ def _chat_completion(messages: list[dict]) -> str:
     return llm.chat(messages)
 
 
-def _compose_reply(db: Session, messages: list[ChatMessage], summaries) -> str:
+def _lang_rule(locale: str | None) -> str:
+    return "ТОЛЬКО на казахском языке (қазақ тілінде)" if (locale or "ru") == "kk" else "по-русски"
+
+
+def _compose_reply(db: Session, messages: list[ChatMessage], summaries, locale: str | None = None) -> str:
     """retrieval-injection: вкладываем найденные summaries в system и зовём LLM."""
     cities = [c[0] for c in db.query(distinct(Clinic.city)).all() if c[0]]
     catalog = [s.canonical_name for s in db.query(ServiceCatalog).all()]
@@ -259,17 +264,18 @@ def _compose_reply(db: Session, messages: list[ChatMessage], summaries) -> str:
         cities=", ".join(cities) or "—",
         catalog=", ".join(catalog[:40]) or "—",
         results=json.dumps(_summaries_for_llm(summaries), ensure_ascii=False),
+        lang=_lang_rule(locale),
     )
     convo: list[dict] = [{"role": "system", "content": system}]
     convo += [{"role": m.role, "content": m.content} for m in messages]
     return _chat_completion(convo)
 
 
-def _run_llm(db: Session, messages: list[ChatMessage]):
+def _run_llm(db: Session, messages: list[ChatMessage], locale: str | None = None):
     user_q = next((m.content for m in reversed(messages) if m.role == "user"), "")
     city = _detect_city(db, user_q)
     offers, summaries = _search_offers(db, user_q, city=city)
-    text = _compose_reply(db, messages, summaries)
+    text = _compose_reply(db, messages, summaries, locale)
     return text or "Уточните, пожалуйста, какую услугу вы ищете.", offers
 
 
@@ -364,7 +370,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if not _has_chat_key():
         return _fallback(db, req.messages)
     try:
-        reply, offers = _run_llm(db, req.messages)
+        reply, offers = _run_llm(db, req.messages, req.locale)
         offers = _dedupe(offers)
         return ChatResponse(
             reply=reply or "Уточните, пожалуйста, запрос.",
@@ -382,6 +388,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 async def chat_vision(
     file: UploadFile = File(...),
     city: str | None = Form(None),
+    locale: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """OCR в чате: фото/скан направления → распознавание услуг → ответ по витрине.
@@ -418,7 +425,7 @@ async def chat_vision(
                          f"Где их сделать дешевле"
                          f"{' в ' + detected_city if detected_city else ''}?"),
             )
-            reply = _compose_reply(db, [synthetic], summaries)
+            reply = _compose_reply(db, [synthetic], summaries, locale)
             if reply:
                 return ChatResponse(reply=reply, offers=offers, grounded=bool(offers),
                                     llm=True, recognized=recognized)
